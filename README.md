@@ -12,6 +12,8 @@ An account/session with permission to perform secure dynamic updates is required
 
 This function supports only GSS-TSIG through Kerberos AES256-CTS-HMAC-SHA1-96 using two separate methods. By default, the function will have Windows perform all Kerberos steps up until the AP-REQ is sent to DNS on the DC. This method will work with either the current session context or with specified credentials. The second method performs Kerberos authentication using just PowerShell code over a TCPClient connection. This method will accept a password or AES256 hash and will also not place any tickets in the client side cache.
 
+##### Examples:
+
 * Add an A record  
 `Invoke-DNSUpdate -DNSType A -DNSName www.test.local -DNSData 192.168.100.125`  
 
@@ -39,6 +41,8 @@ Machine accounts created with standard users will have the mS-DS-CreatorSID popu
 
 Note that ms-DS-MachineAccountQuota does not provide the ability for authenticated users to delete added machine accounts from AD. Elevated privilege will need to be acquired to remove the account if you want to avoid passing the task off to your client.
 
+##### Examples:
+
 * Add a new machine account  
 `New-MachineAccount -MachineAccount iamapc` 
 
@@ -55,19 +59,23 @@ This function can populate some attributes for an account that was added through
 
 Here is a list of some of the usual write access enabled attributes:  
 
-* AccountDisabled
-* description
-* displayName
-* DnsHostName
-* ServicePrincipalName
-* userParameters
-* userAccountControl
-* msDS-AdditionalDnsHostName
-* msDS-AllowedToActOnBehalfOfOtherIdentity
-* SamAccountName
+* AccountDisabled  
+* description  
+* displayName  
+* DnsHostName  
+* ServicePrincipalName  
+* userParameters  
+* userAccountControl  
+* msDS-AdditionalDnsHostName  
+* msDS-AllowedToActOnBehalfOfOtherIdentity  
+* SamAccountName  
 
-* Remove the trailing '$' from the SamAccountName attribute and then use the account with runas /netonly   
+##### Examples:
+
+* Remove the trailing '$' from the SamAccountName attribute
 `Set-MachineAccountAttribute -MachineName iamapc -Attribute SamAccountName -Value iamapc`
+
+* Use the modified account with runas /netonly  
 `runas /netonly /user:domain\iamapc` 
 
 ## Get-MachineAccountAttribute
