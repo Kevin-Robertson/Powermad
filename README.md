@@ -42,13 +42,33 @@ Note that ms-DS-MachineAccountQuota does not provide the ability for authenticat
 * Add a new machine account  
 `New-MachineAccount -MachineAccount iamapc` 
 
+* Use the added account with runas /netonly  
+`runas /netonly /user:domain\iamapc$` 
+
 ## Disable-MachineAccount
 
 This function can disable a machine account that was added through New-MachineAccount. This function should be used with the same user that created the machine account.
 
 ## Set-MachineAccountAttribute
 
-This function can populate some attributes for an account that was added through New-MachineAccount, if a user has write access. This function should be used with the same user that created the machine account.
+This function can populate some attributes for an account that was added through New-MachineAccount, if a user has write access. This function should be used with the same user that created the machine account.  
+
+Here is a list of some of the usual write access enabled attributes:  
+
+* AccountDisabled
+* description
+* displayName
+* DnsHostName
+* ServicePrincipalName
+* userParameters
+* userAccountControl
+* msDS-AdditionalDnsHostName
+* msDS-AllowedToActOnBehalfOfOtherIdentity
+* SamAccountName
+
+* Remove the trailing '$' from the SamAccountName attribute and then use the account with runas /netonly   
+`Set-MachineAccountAttribute -MachineName iamapc -Attribute SamAccountName -Value iamapc`
+`runas /netonly /user:domain\iamapc` 
 
 ## Get-MachineAccountAttribute
 
