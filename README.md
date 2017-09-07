@@ -49,7 +49,7 @@ Note that ms-DS-MachineAccountQuota does not provide the ability for authenticat
 * Add a new machine account  
 `New-MachineAccount -MachineAccount iamapc` 
 
-* Use the added account with runas /netonly
+* Use the added account with runas /netonly  
 `runas /netonly /user:domain\iamapc$ powershell` 
 
 ## Disable-MachineAccount
