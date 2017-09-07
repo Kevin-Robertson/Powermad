@@ -20,6 +20,9 @@ This function supports only GSS-TSIG through Kerberos AES256-CTS-HMAC-SHA1-96 us
 * Delete an A record  
 `Invoke-DNSUpdate -DNSType A -DNSName www.test.local` 
 
+* Add an SRV record  
+`Invoke-DNSUpdate -DNSType SRV -DNSName _autodiscover._tcp.test.local -DNSData system.test.local -DNSPriority 100 -DNSWeight 80 -DNSPort 443`  
+
 ## New-MachineAccount
 
 This function can leverage the default ms-DS-MachineAccountQuota attribute setting which allows all domain users to add up to 10 computers to a domain. The new machine account is added directly through an LDAP add request to a domain controller and not by impacting the host system’s attachment status to Active Directory.
