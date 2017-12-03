@@ -5,7 +5,7 @@ function Invoke-DNSUpdate
     This function allows DNS records to be added/deleted if secure dynamic updates are enabled on a domain
     controller. Authentication is performed through Kerberos GSS-TSIG. 
 
-    Author: Kevin Robertson (@kevin_robertson)  
+    Author: Kevin Robertson (@kevin_robertson)
     License: BSD 3-Clause  
     
     .DESCRIPTION
@@ -17,14 +17,14 @@ function Invoke-DNSUpdate
     users have the 'Create all child objects' permission on the Active Directory-integrated zone. Most records
     that do not currently exist in an AD zone can be added/deleted. Limitations for authenticated users can
     include things like being prevented from adding SRV records that interfere with the AD Kerberos records. Older
-    existing dynamic records can sometimes be hijacked also. Note that wpad and isatap are on a block list by
-    default starting with Server 2008.
+    existing dynamic records can sometimes be hijacked. Note that wpad and isatap are on a block list by default
+    starting with Server 2008.
     
     This function supports only GSS-TSIG through Kerberos AES256-CTS-HMAC-SHA1-96 using two separate methods. By
     default, the function will have Windows perform all Kerberos steps up until the AP-REQ is sent to DNS on the
     DC. This method will work with either the current session context or with specified credentials. The second
     method performs Kerberos authentication using just PowerShell code over a TCPClient connection. This method
-    will accept a password or AES256 hash and will also not place any tickets in the client side cache.
+    will accept a password or AES256 hash and will not place any tickets in the client side cache.
 
     .PARAMETER DomainController
     Domain controller to target in FQDN format.
@@ -209,21 +209,15 @@ function Invoke-DNSUpdate
         }
 
     }
+    else
+    {
+        $realm_index = $DomainController.IndexOf(".")
+        $domain = $DomainController.Substring($realm_index + 1)
+    }
 
     if(!$Realm)
     {
-
-        if($domain)
-        {
-            $realm = $domain
-        }
-        else
-        {
-            $realm_index = $DomainController.IndexOf(".")
-            $domain = $DomainController.Substring($realm_index + 1)
-            $realm = $domain
-        }
-
+        $realm = $domain
     }
 
     if($TCPClientAuth -or $Hash)
@@ -273,6 +267,7 @@ function Invoke-DNSUpdate
 
         return $byte_array
     }
+
      function Get-KerberosAES256UsageKey
     {
         param([String]$key_type,[Int]$usage_number,[Byte[]]$base_key)
@@ -351,6 +346,7 @@ function Invoke-DNSUpdate
 
         return $base_key
     }
+
     function New-PacketKerberosASREQ()
     {
         param([Byte[]]$username,[Byte[]]$realm,[Byte[]]$namestring,[Byte[]]$nonce,[Byte[]]$pac,[Byte[]]$pac_signature)
@@ -444,6 +440,7 @@ function Invoke-DNSUpdate
 
         return $packet_KerberosASREQ
     }
+
     function New-PacketKerberosAPREQ()
     {
         param([Byte[]]$realm,[Byte[]]$spn,[Byte[]]$kvno,[Byte[]]$ticket,[Byte[]]$authenticator,[Byte[]]$authenticator_signature)
@@ -529,6 +526,7 @@ function Invoke-DNSUpdate
 
         return $packet_KerberosAPREQ
     }
+
     function Unprotect-KerberosASREP
     {
         param([Byte[]]$ke_key,[Byte[]]$encrypted_data)
@@ -551,6 +549,7 @@ function Invoke-DNSUpdate
 
         return $cleartext
     }
+
     function New-KerberosPACTimestamp
     {
         param([Byte[]]$ke_key)
@@ -566,6 +565,7 @@ function Invoke-DNSUpdate
         
         return $PAC_Timestamp
     }
+
     function New-KerberosAuthenticator
     {
         param([Byte[]]$realm,[Byte[]]$username,[Byte[]]$subkey,[Byte[]]$sequence_number)
@@ -621,6 +621,7 @@ function Invoke-DNSUpdate
 
         return $packet_KerberosAuthenticator
     }
+
     function Get-KerberosTimestampUTC
     {
         [DateTime]$timestamp = (Get-Date).ToUniversalTime()
@@ -629,6 +630,7 @@ function Invoke-DNSUpdate
 
         return $timestamp
     }
+
     function Get-KerberosMicrosecond
     {
         [Int]$microseconds = Get-Date -Format ffffff
@@ -636,6 +638,7 @@ function Invoke-DNSUpdate
 
         return $microseconds
     }
+
     function Protect-KerberosAES256CTS
     {
         param([Byte[]]$ke_key,[Byte[]]$data)
@@ -672,6 +675,7 @@ function Invoke-DNSUpdate
         return $data_encrypted
     }
     # TCPClient Kerberos end
+    
     function Get-KerberosHMACSHA1
     {
         param([Byte[]]$key,[Byte[]]$data)
@@ -683,6 +687,7 @@ function Invoke-DNSUpdate
 
         return $hash
     }
+    
     function Get-ASN1LengthArray
     {
         param([Int]$length)
@@ -700,6 +705,7 @@ function Invoke-DNSUpdate
 
         return $asn1
     }
+    
     function Get-ASN1LengthArrayLong
     {
         param([Int]$length)
@@ -719,6 +725,7 @@ function Invoke-DNSUpdate
 
         return $asn1
     }
+    
     function New-RandomByteArray
     {
         param([Int]$length,[Int]$minimum=1,[Int]$maximum=255)
@@ -728,6 +735,7 @@ function Invoke-DNSUpdate
 
         return $random
     }
+    
     function New-DNSNameArray
     {
         param([String]$name)
@@ -759,6 +767,7 @@ function Invoke-DNSUpdate
 
         return $name_array
     }
+    
     function New-PacketDNSQueryTKEY
     {
         param([Byte[]]$tkey_name,[Byte[]]$apreq)
@@ -815,6 +824,7 @@ function Invoke-DNSUpdate
 
         return $packet_DNSQueryTKEY
     }
+    
     function New-PacketDNSUpdateTSIG
     {
         param([Byte[]]$transaction_ID,[String]$zone,[String]$name,[String]$type,[Int]$TTL,[Int]$preference,[Int]$priority,[Int]$weight,[Int]$port,[String]$data,[Byte[]]$time_signed,[Byte[]]$tkey_name,[Byte[]]$MAC)
@@ -1041,6 +1051,7 @@ function Invoke-DNSUpdate
 
         return $packet_DNSUpdateTSIG
     }
+    
     function New-PacketDNSUpdateMAC
     {
         param([Byte[]]$flags,[Byte[]]$sequence_number,[Byte[]]$checksum)
@@ -1168,7 +1179,7 @@ function Invoke-DNSUpdate
         }
         elseif($asrep_payload.Length -gt 0 -and $asrep_payload -like '*A003020105A10302011E*')
         {
-            Write-Output "[-] Kerberos preauthentication error, check credentials"
+            Write-Output ("[-] Kerberos preauthentication error 0x" + $asrep_payload.Substring(96,2))
             $auth_success = $false
         }
         else
