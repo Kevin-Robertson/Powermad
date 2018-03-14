@@ -9,4 +9,4 @@ Import-Module $PWD\New-MachineAccount.ps1
 Import-Module $PWD\Disable-MachineAccount.ps1
 Import-Module $PWD\Set-MachineAccountAttribute.ps1
 Import-Module $PWD\Get-MachineAccountAttribute.ps1
-Import-Module $PWD\Get-KerberosAESKey.ps1
+Import-Module $PWD\Get-MachineAccountCreator.ps1
