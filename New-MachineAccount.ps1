@@ -15,16 +15,18 @@ function New-MachineAccount
     Directory. This function does not modify the domain attachment and machine account associated with the host
     system.
 
-    Note that you will not be able to remove the account without elevating privilege.
+    Note that you will not be able to remove the account without elevating privilege. You can however disable the
+    account as long as you maintain access to the account used to create the machine account.
 
     .PARAMETER Credential
     Credentials for adding the machine account. Note that machine accounts can also add machine accounts.
 
     .PARAMETER Domain
-    The targeted domain.
+    The targeted domain. This parameter is mandatory on a non-domain attached system. Note this parameter
+    requires a DNS domain name and not a NetBIOS version.
 
     .PARAMETER DomainController
-    Domain controller to target in FQDN format.
+    Domain controller to target. This parameter is mandatory on a non-domain attached system.
 
     .PARAMETER DistinguishedName
     Distinguished name for the computers OU.
@@ -45,10 +47,10 @@ function New-MachineAccount
     Add a machine account with creds from another user.
 
     .EXAMPLE
-    $machine_account_password = ConvertTo-SecureString 'Summer2017!' -AsPlainText -Force
-    $user_account_password = ConvertTo-SecureString 'Spring2017!' -AsPlainText -Force
+    $machine_account_password = ConvertTo-SecureString 'Summer2018!' -AsPlainText -Force
+    $user_account_password = ConvertTo-SecureString 'Spring2018!' -AsPlainText -Force
     $user_account_creds = New-Object System.Management.Automation.PSCredential('domain\user',$user_account_password)
-    New-MachineAccount -MachineName iamapc -Password $machine_account_password -Credential $user_account_creds
+    New-MachineAccount -MachineAccount iamapc -Password $machine_account_password -Credential $user_account_creds
     Add a machine account with creds from another user and also avoid the machine account password prompt.
 
     .LINK
@@ -76,14 +78,12 @@ function New-MachineAccount
     $password_BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
     $password_cleartext = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($password_BSTR)
 
-     if(!$DomainController)
+    if(!$DomainController)
     {
 
         try
         {
-            $current_domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
-            $DomainController = $current_domain.DomainControllers[0].Name
-            $domain = $current_domain.Name
+            $DomainController = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().DomainControllers[0].Name
         }
         catch
         {
@@ -95,10 +95,22 @@ function New-MachineAccount
 
     if(!$Domain)
     {
-        $domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
+
+        try
+        {
+            $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
+        }
+        catch
+        {
+            $error_message = $_.Exception.Message
+            $error_message = $error_message -replace "`n",""
+            Write-Output "[-] $error_message"
+            throw
+        }
+
     }
     
-    $domain = $domain.ToLower()
+    $Domain = $Domain.ToLower()
     $machine_account = $MachineAccount
 
     if($MachineAccount.EndsWith('$'))
@@ -115,12 +127,10 @@ function New-MachineAccount
 
     if(!$DistinguishedName)
     {
-
         $distinguished_name = "CN=$machine_account,CN=Computers"
+        $DC_array = $Domain.Split(".")
 
-        $DCArray = $Domain.Split(".")
-
-        ForEach($DC in $DCArray)
+        ForEach($DC in $DC_array)
         {
             $distinguished_name += ",DC=$DC"
         }
@@ -131,7 +141,7 @@ function New-MachineAccount
         $distinguished_name = "$DistinguishedName"
     }
 
-    Write-Verbose $distinguished_name
+    Write-Verbose "[+] Distinguished Name=$distinguished_name"
     $password_cleartext = [System.Text.Encoding]::Unicode.GetBytes('"' + $password_cleartext + '"')
     $identifier = New-Object System.DirectoryServices.Protocols.LdapDirectoryIdentifier($DomainController,389)
 
@@ -165,7 +175,15 @@ function New-MachineAccount
     }
     catch
     {
-        Write-Output "[-] something went wrong"
+        $error_message = $_.Exception.Message
+        $error_message = $error_message -replace "`n",""
+        Write-Output "[-] $error_message"
+
+        if($error_message -eq 'Exception calling "SendRequest" with "1" argument(s): "The server cannot handle directory requests."')
+        {
+            Write-Output "[!] User may have reached ms-DS-MachineAccountQuota limit"
+        }
+
     }
 
 }

@@ -4,7 +4,8 @@ function Get-MachineAccountCreator
     .SYNOPSIS
     This function leverages the ms-DS-CreatorSID property on machine accounts to return a list
     of usernames or SIDs and the associated machine account. The ms-DS-CreatorSID property is only
-    populated when a machine account is created by an unprivileged user. 
+    populated when a machine account is created by an unprivileged user. Note that SIDs will be returned
+    over usernames if SID to username lookups fail through System.Security.Principal.SecurityIdentifier.
 
     .DESCRIPTION
     This function can be used to see how close a user is to a ms-DS-MachineAccountQuota before
@@ -20,16 +21,17 @@ function Get-MachineAccountCreator
     Distinguished name for the computers OU.
 
     .PARAMETER Domain
-    The targeted domain. This parameter is mandatory on a non-domain system.
+    The targeted domain. This parameter is mandatory on a non-domain attached system. Note this parameter
+    requires a DNS domain name and not a NetBIOS version.
 
     .PARAMETER DomainController
-    Domain controller to target.
+    Domain controller to target. This parameter is mandatory on a non-domain attached system.
 
     .EXAMPLE
     Get-MachineAccountCreator
 
     .EXAMPLE
-    $user_account_password = ConvertTo-SecureString 'Winter2018!' -AsPlainText -Force
+    $user_account_password = ConvertTo-SecureString 'Spring2018!' -AsPlainText -Force
     $user_account_creds = New-Object System.Management.Automation.PSCredential('domain\user',$user_account_password)
     Get-MachineAccountCreator -Credential $user_account_creds
 
@@ -51,9 +53,7 @@ function Get-MachineAccountCreator
 
         try
         {
-            $current_domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
-            $DomainController = $current_domain.DomainControllers[0].Name
-            $domain = $current_domain.Name
+            $DomainController = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().DomainControllers[0].Name
         }
         catch
         {
@@ -68,7 +68,7 @@ function Get-MachineAccountCreator
 
         try
         {
-            $domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
+            $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
         }
         catch
         {
@@ -82,9 +82,7 @@ function Get-MachineAccountCreator
 
     if(!$DistinguishedName)
     {
-
         $distinguished_name = "CN=Computers"
-
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -98,44 +96,58 @@ function Get-MachineAccountCreator
         $distinguished_name = "$DistinguishedName"
     }
 
-    if($Credential)
-    {
-        $directory_entry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DomainController/$distinguished_name",$Credential.UserName,$credential.GetNetworkCredential().Password)
-    }
-    else
-    {
-        $directory_entry = New-Object System.DirectoryServices.DirectoryEntry "LDAP://$distinguished_name"
-    }
-    
-    $machine_account_searcher = New-Object DirectoryServices.DirectorySearcher 
-    $machine_account_searcher.SearchRoot = $directory_entry  
-    $machine_accounts = $machine_account_searcher.FindAll() | where-object {$_.properties.objectcategory -match "CN=computer"}  
-    $creator_object_list = @()
-                                                
-    ForEach($account in $machine_accounts)
-    {
-        $creator_SID_object = $account.properties."ms-ds-creatorsid"
+    Write-Verbose "[+] Distinguished Name=$distinguished_name"
 
-        if($creator_SID_object)
+    try
+    {
+
+        if($Credential)
         {
-            $creator_SID = (New-Object System.Security.Principal.SecurityIdentifier($creator_SID_object[0],0)).Value
-            $creator_object = New-Object PSObject
+            $directory_entry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DomainController/$distinguished_name",$Credential.UserName,$credential.GetNetworkCredential().Password)
+        }
+        else
+        {
+            $directory_entry = New-Object System.DirectoryServices.DirectoryEntry "LDAP://$DomainController/$distinguished_name"
+        }
+        
+        $machine_account_searcher = New-Object DirectoryServices.DirectorySearcher 
+        $machine_account_searcher.SearchRoot = $directory_entry  
+        $machine_accounts = $machine_account_searcher.FindAll() | where-object {$_.properties.objectcategory -match "CN=computer"}  
+        $creator_object_list = @()
+                                                    
+        ForEach($account in $machine_accounts)
+        {
+            $creator_SID_object = $account.properties."ms-ds-creatorsid"
 
-            try
+            if($creator_SID_object)
             {
-                $creator_username = (New-Object System.Security.Principal.SecurityIdentifier($creator_SID)).Translate([System.Security.Principal.NTAccount]).value
-                Add-Member -InputObject $creator_object -MemberType NoteProperty -Name Creator $creator_username
+                $creator_SID = (New-Object System.Security.Principal.SecurityIdentifier($creator_SID_object[0],0)).Value
+                $creator_object = New-Object PSObject
+
+                try
+                {
+                    $creator_username = (New-Object System.Security.Principal.SecurityIdentifier($creator_SID)).Translate([System.Security.Principal.NTAccount]).value
+                    Add-Member -InputObject $creator_object -MemberType NoteProperty -Name Creator $creator_username
+                }
+                catch
+                {
+                    Add-Member -InputObject $creator_object -MemberType NoteProperty -Name Creator $creator_SID
+                }
+                
+                Add-Member -InputObject $creator_object -MemberType NoteProperty -Name "Machine Account" $account.properties.samaccountname[0]
+                $creator_object_list += $creator_object
+                $creator_SID_object = $null
             }
-            catch
-            {
-                Add-Member -InputObject $creator_object -MemberType NoteProperty -Name Creator $creator_SID
-            }
-            
-            Add-Member -InputObject $creator_object -MemberType NoteProperty -Name "Machine Account" $account.properties.samaccountname[0]
-            $creator_object_list += $creator_object
-            $creator_SID_object = $null
+
         }
 
+    }
+    catch
+    {
+        $error_message = $_.Exception.Message
+        $error_message = $error_message -replace "`n",""
+        Write-Output "[-] $error_message"
+        throw
     }
 
     Write-Output $creator_object_list | Sort-Object -property @{Expression = {$_.Creator}; Ascending = $false}, "Machine Account" | Format-Table -AutoSize

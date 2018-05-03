@@ -16,11 +16,17 @@ function Disable-MachineAccount
 
     Note that this function does not accept credentials.
 
+    .PARAMETER Credential
+    Credentials for account that was used to create the machine account.
+
     .PARAMETER DistinguishedName
     Distinguished name for the computers OU.
 
     .PARAMETER Domain
-    The targeted domain.
+    The targeted domain. This parameter is mandatory on a non-domain attached system.
+
+    .PARAMETER DomainController
+    Domain controller to target. This parameter is mandatory on a non-domain attached system.
 
     .PARAMETER MachineAccount
     The username of the machine account that will be disabled.
@@ -37,8 +43,44 @@ function Disable-MachineAccount
     (
         [parameter(Mandatory=$false)][String]$DistinguishedName,
         [parameter(Mandatory=$false)][String]$Domain,
-        [parameter(Mandatory=$true)][String]$MachineAccount
+        [parameter(Mandatory=$false)][String]$DomainController,
+        [parameter(Mandatory=$true)][String]$MachineAccount,
+        [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential
     )
+
+    if(!$DomainController)
+    {
+
+        try
+        {
+            $current_domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
+            $DomainController = $current_domain.DomainControllers[0].Name
+            $Domain = $current_domain.Name
+        }
+        catch
+        {
+            Write-Output "[-] domain controller not located"
+            throw
+        }
+
+    }
+
+    if(!$Domain)
+    {
+
+        try
+        {
+            $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
+        }
+        catch
+        {
+            $error_message = $_.Exception.Message
+            $error_message = $error_message -replace "`n",""
+            Write-Output "[-] $error_message"
+            throw
+        }
+
+    }
 
     if($MachineAccount.EndsWith('$'))
     {
@@ -49,19 +91,12 @@ function Disable-MachineAccount
         $machine_account = $MachineAccount  
     }
 
-    if(!$Domain)
-    {
-        $domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
-    }
-
     if(!$DistinguishedName)
     {
-
         $distinguished_name = "CN=$machine_account,CN=Computers"
+        $DC_array = $Domain.Split(".")
 
-        $DCArray = $Domain.Split(".")
-
-        ForEach($DC in $DCArray)
+        ForEach($DC in $DC_array)
         {
             $distinguished_name += ",DC=$DC"
         }
@@ -72,7 +107,16 @@ function Disable-MachineAccount
         $distinguished_name = "$DistinguishedName"
     }
 
-    $account = New-Object System.DirectoryServices.DirectoryEntry "LDAP://$distinguished_name"
+    Write-Verbose "[+] Distinguished Name=$distinguished_name"
+
+    if($Credential)
+    {
+        $account = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DomainController/$distinguished_name",$Credential.UserName,$credential.GetNetworkCredential().Password)
+    }
+    else
+    {
+        $account = New-Object System.DirectoryServices.DirectoryEntry "LDAP://$distinguished_name"
+    }
 
     if(!$account.InvokeGet("AccountDisabled"))
     {
