@@ -3,6 +3,9 @@
 ## Wiki
 * https://github.com/Kevin-Robertson/Powermad/wiki
 
+## Blog Post  
+* [Beyond LLMNR/NBNS Spoofing - Exploiting Active Directory-Integrated DNS](https://blog.netspi.com/exploiting-adidns/)
+
 ## Functions  
 * [MachineAccountQuota Functions](#machineaccountquota-functions)
 * [DNS Functions](#dns-functions)
