@@ -2,29 +2,39 @@ function Invoke-DNSUpdate
 {
     <#
     .SYNOPSIS
-    This function allows DNS records to be added/deleted if secure dynamic updates are enabled on a domain
-    controller. Authentication is performed through Kerberos GSS-TSIG. 
+    This function performs secure and nonsecure DNS dynamic updates against an AD domain controller. Authentication
+    for secure updates is performed through Kerberos GSS-TSIG. 
 
     Author: Kevin Robertson (@kevin_robertson)
     License: BSD 3-Clause  
     
     .DESCRIPTION
-    This function can be used to add/delete dynamic DNS records if the default setting of enabled secure dynamic
-    updates is configured on a domain controller. A, AAAA, CNAME, MX, PTR, SRV, and TXT records are currently
-    supported. Invoke-DNSUpdate is modeled after BIND`s nsupdate tool when using the '-g' or 'gsstsig' options. 
+    This function can be used to add/delete dynamic DNS records through secure or nonsecure dynamic updates against an
+    AD domain controller. A, AAAA, CNAME, MX, PTR, SRV, and TXT records are currently supported. Invoke-DNSUpdate is modeled
+    after BIND`s nsupdate tool when using the '-g' or 'gsstsig' options for secure updates or no authentication for
+    nonsecure updates. 
 
-    An account/session with permission to perform secure dynamic updates is required. By default, authenticated
-    users have the 'Create all child objects' permission on the Active Directory-integrated zone. Most records
-    that do not currently exist in an AD zone can be added/deleted. Limitations for authenticated users can
-    include things like being prevented from adding SRV records that interfere with the AD Kerberos records. Older
-    existing dynamic records can sometimes be hijacked. Note that wpad and isatap are on a block list by default
-    starting with Server 2008.
-    
-    This function supports only GSS-TSIG through Kerberos AES256-CTS-HMAC-SHA1-96 using two separate methods. By
-    default, the function will have Windows perform all Kerberos steps up until the AP-REQ is sent to DNS on the
-    DC. This method will work with either the current session context or with specified credentials. The second
-    method performs Kerberos authentication using just PowerShell code over a TCPClient connection. This method
+    By default, Active Directory-integrated zones have secure dynamic updates enabled with authenticated users having
+    'Create all child objects' permission. Records that do not exist in an AD zone can be added/deleted with a standard
+    user account. Existing records created by default or created by other users impose limitations. For example, creating
+    records that apply to the root of the zone or creating additional SRV records for kerberos/ldap will likely be blocked
+    due to existing records. Note however that older existing dynamic records can sometimes be hijacked. Subdomain folders
+    can also be created.
+
+    With secure dynamic updates, this function supports only GSS-TSIG through Kerberos AES256-CTS-HMAC-SHA1-96 using
+    two separate methods. By default, the function will have Windows perform all Kerberos steps up until the AP-REQ
+    is sent to DNS on the DC. This method will work with either the current session context or with specified credentials.
+    The second method performs Kerberos authentication using just PowerShell code over a TCPClient connection. This method
     will accept a password or AES256 hash and will not place any tickets in the client side cache.
+
+    In the event that a zone is configured for nonsecure dynamic updates, you should have full control over the zone.
+
+    Note that wpad and isatap are on a block list by default starting with Server 2008. Although the records can be added
+    with both secure and nonsecure dynamic updates, AD DNS will not answer requests for wpad and isatap if they are listed
+    on the block list. 
+
+    .PARAMETER Credential
+    PSCredential object that will be used to to perform dynamic update.
 
     .PARAMETER DomainController
     Domain controller to target in FQDN format.
@@ -34,42 +44,54 @@ function Invoke-DNSUpdate
 
     .PARAMETER Username
     Username of user with DNS secure dynamic update access. If using a machine account, the trailing '$' must be
-    included.
+    included if one is shown in the SAMAccountName attribute. Note, this is an alternative to using Credential and
+    is mainly included as part of pass the hash functionality.
 
     .PARAMETER Password
     Password of user with DNS secure dynamic update access. The password must be in the form of a secure string.
+    Note, this is an alternative to using Credential and is mainly included as part of pass the hash
+    functionality.
 
     .PARAMETER Hash
     AES256 password hash for user with DNS secure dynamic update access. Note that this will use Kerberos
-    authentication built on top of TCPClient.
+    authentication built on top of TCPClient. Note, this is an alternative to using Credential and is mainly
+    included as part of pass the hash functionality.
+
+    .PARAMETER Security
+    Default = Secure: (Auto/Nonsecure/Secure) Dynamic update security type. Auto will attempt to use nonsecure. If
+    nonsecure fails, secure will be used. This is the standard dynamic update behavior. Secure is the default
+    because it generates less traffic with default setups. 
 
     .PARAMETER DNSName
     DNS record name.
 
     .PARAMETER DNSData
     DNS records data. For most record types this will be the destination hostname or IP address. For TXT records
-    this can be used for data. If deleting a record, leave off this parameter.
-
-    .PARAMETER DNSType
-    DNS record type.
-
-    .PARAMETER DNSTTL
-    DNS record TTL.
-
-    .PARAMETER DNSPreference
-    DNS MX record priority
-
-    .PARAMETER DNSPriority
-    DNS SRV record priority.
-
-    .PARAMETER DNSWeight
-    DNS SRV record weight.
+    this can be used for data. If deleting a record, do not set this parameter.
 
     .PARAMETER DNSPort
     DNS SRV record port.
 
+    .PARAMETER DNSPreference
+    DNS MX record preference.
+
+    .PARAMETER DNSPriority
+    DNS SRV record priority.
+
+    .PARAMETER DNSTTL
+    Default = 600: DNS record TTL.
+
+    .PARAMETER DNSType
+    Default = A: DNS record type. This function supports A, AAAA, CNAME, MX, PTR, SRV, and TXT.
+
+    .PARAMETER DNSWeight
+    DNS SRV record weight.
+
     .PARAMETER DNSZone
     DNS zone.
+
+    .PARAMETER RecordCheck
+    Check for an existing matching record before attempting to add or delete.
 
     .PARAMETER TCPClientAuth
     Switch to force usage of the TCPClient based Kerberos authentication.
@@ -87,7 +109,7 @@ function Invoke-DNSUpdate
     Add CNAME Record
 
     .EXAMPLE
-    Invoke-DNSUpdate -DNSType MX -DNSName www.test.local -DNSData 192.168.100.125 -DNSPreference 10
+    Invoke-DNSUpdate -DNSType MX -DNSName test.local -DNSData 192.168.100.125 -DNSPreference 10
     Add MX Record
 
     .EXAMPLE
@@ -126,21 +148,31 @@ function Invoke-DNSUpdate
         [parameter(Mandatory=$false)][String]$Username,
         [parameter(Mandatory=$false)][System.Security.SecureString]$Password,
         [parameter(Mandatory=$false)][ValidateScript({$_.Length -eq 64})][String]$Hash,
-        [parameter(Mandatory=$false)][String]$DNSZone,
+        [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][Int]$DNSTTL = 600,
         [parameter(Mandatory=$false)][Int]$DNSPreference,
         [parameter(Mandatory=$false)][Int]$DNSPriority,
         [parameter(Mandatory=$false)][Int]$DNSWeight,
         [parameter(Mandatory=$false)][Int]$DNSPort,
-        [parameter(Mandatory=$true)][ValidateSet("A","AAAA","CNAME","MX","PTR","SRV","TXT")][String]$DNSType,
+        [parameter(Mandatory=$false)][ValidateSet("Auto","Nonsecure","Secure")][String]$Security = "Secure",
+        [parameter(Mandatory=$false)][ValidateSet("A","AAAA","CNAME","MX","PTR","SRV","TXT")][String]$DNSType = "A",
         [parameter(Mandatory=$true)][String]$DNSName,
         [parameter(Mandatory=$false)][ValidateScript({$_.Length -le 255})][String]$DNSData,
-        [parameter(Mandatory=$false)][Switch]$TCPClientAuth
+        [parameter(Mandatory=$false)][Switch]$RecordCheck,
+        [parameter(Mandatory=$false)][Switch]$TCPClientAuth,
+        [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
+        [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
     )
 
-    if($TCPClientAuth -and !$Username)
+    if($invalid_parameter)
     {
-        Write-Output "[-] TCPClientAuth requires a username"
+        Write-Output "[-] $($invalid_parameter) is not a valid parameter"
+        throw
+    }
+
+    if($TCPClientAuth -and (!$Credential -and !$Username))
+    {
+        Write-Output "[-] TCPClientAuth requires a username or PSCredential"
         throw
     }
 
@@ -161,7 +193,7 @@ function Invoke-DNSUpdate
         'PTR'
         {
 
-            if(!$DNSZone)
+            if(!$Zone)
             {
                 Write-Output "[-] PTR records require a DNSZone"
                 throw
@@ -172,7 +204,7 @@ function Invoke-DNSUpdate
         'SRV'
         {
 
-            if(!$DNSPriority -or !$DNSWeight -or !$DNSPort -and $DNSData)
+            if(!$DNSPriority -and !$DNSWeight -and !$DNSPort -and $DNSData)
             {
                 Write-Output "[-] DNSType SRV requires DNSPriority, DNSWeight, and DNSPort"
                 throw
@@ -188,43 +220,62 @@ function Invoke-DNSUpdate
         
     }
 
-    if($Username -and !$Hash)
+    if($Security -ne 'Nonsecure' -and $Username -and !$Hash)
     {
         $password = Read-Host -Prompt "Enter password" -AsSecureString  
     }
 
-    if(!$DomainController)
+    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Realm -or !$Zone))
     {
 
         try
         {
             $current_domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
-            $DomainController = $current_domain.DomainControllers[0].Name
-            $domain = $current_domain.Name
         }
         catch
         {
-            Write-Output "[-] Domain controller not located"
+            Write-Output "[-] $($_.Exception.Message)"
             throw
         }
 
     }
-    else
+
+    if(!$DomainController)
     {
-        $realm_index = $DomainController.IndexOf(".")
-        $domain = $DomainController.Substring($realm_index + 1)
+        $DomainController = $current_domain.PdcRoleOwner.Name
+        Write-Verbose "[+] Domain Controller = $DomainController"
+    }
+
+    if(!$Domain)
+    {
+        $Domain = $current_domain.Name
+        Write-Verbose "[+] Domain = $Domain"
     }
 
     if(!$Realm)
     {
-        $realm = $domain
+        $Realm = $current_domain.Name
+        Write-Verbose "[+] Kerberos Realm = $Realm"
     }
 
-    if($TCPClientAuth -or $Hash)
+    if(!$Zone)
     {
-    
+        $Zone = $current_domain.Name
+        Write-Verbose "[+] DNS Zone = $Zone"
+    }
+
+    $Zone = $Zone.ToLower()
+
+    if($TCPClientAuth -or $Hash -or ($TCPClientAuth -and $Credential))
+    {
         $kerberos_tcpclient = $true
-        $realm = $realm.ToUpper()
+        $Realm = $Realm.ToUpper()
+
+        if($Credential)
+        {
+            $Username = $Credential.Username
+            $Password = $Credential.Password
+        }
 
         if($username -like "*\*")
         {
@@ -238,37 +289,28 @@ function Invoke-DNSUpdate
 
         if($Username.EndsWith("$"))
         {
-            $salt = $realm + "host" + $Username.SubString(0,$Username.Length - 1) + "." + $realm.ToLower()        
+            $salt = $Realm + "host" + $Username.SubString(0,$Username.Length - 1) + "." + $Realm.ToLower()        
         }
         else
         {
-            $salt = $realm + $Username    
+            $salt = $Realm + $Username    
         }
 
         Write-Verbose "[+] Salt $salt"
     }
-
-    if(!$DNSZone)
-    {
-        $DNSZone_index = $DomainController.IndexOf(".")
-        $DNSZone = $DomainController.Substring($DNSZone_index + 1)
-    }
-
-    $DNSZone = $DNSZone.ToLower()
     
-    function ConvertFrom-PacketOrderedDictionary
+    function ConvertFrom-PacketOrderedDictionary($OrderedDictionary)
     {
-        param($ordered_dictionary)
 
-        ForEach($field in $ordered_dictionary.Values)
+        ForEach($field in $OrderedDictionary.Values)
         {
             $byte_array += $field
         }
 
-        return $byte_array
+        return [Byte[]]$byte_array
     }
 
-     function Get-KerberosAES256UsageKey
+    function Get-KerberosAES256UsageKey
     {
         param([String]$key_type,[Int]$usage_number,[Byte[]]$base_key)
 
@@ -349,7 +391,7 @@ function Invoke-DNSUpdate
 
     function New-PacketKerberosASREQ()
     {
-        param([Byte[]]$username,[Byte[]]$realm,[Byte[]]$namestring,[Byte[]]$nonce,[Byte[]]$pac,[Byte[]]$pac_signature)
+        param([Byte[]]$Username,[Byte[]]$Realm,[Byte[]]$NameString,[Byte[]]$Nonce,[Byte[]]$PAC,[Byte[]]$PACSignature)
 
         $timestamp = Get-Date
         $till = $timestamp.AddYears(20)
@@ -358,26 +400,26 @@ function Invoke-DNSUpdate
         [Byte[]]$timestamp = [System.Text.Encoding]::UTF8.GetBytes($timestamp)
         [Byte[]]$till = [System.Text.Encoding]::UTF8.GetBytes($till)
 
-        if($pac)
+        if($PAC)
         {
             $pac_extra_length = 78
         }
 
-        [Byte[]]$namestring1_length = Get-ASN1LengthArray $namestring.Count
-        [Byte[]]$namestring_length = Get-ASN1LengthArray ($namestring.Count + $namestring1_length.Count + 6)
-        [Byte[]]$namestring_length2 = Get-ASN1LengthArray ($namestring.Count + $namestring1_length.Count + $namestring_length.Count + 7)
-        [Byte[]]$sname_length = Get-ASN1LengthArray ($namestring.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + 13)
-        [Byte[]]$sname_length2 = Get-ASN1LengthArray ($namestring.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + 14)
-        [Byte[]]$realm_length = Get-ASN1LengthArray $realm.Count
-        [Byte[]]$realm_length2 = Get-ASN1LengthArray ($realm.Count + $realm_length.Count + 1)
-        [Byte[]]$cname_length = Get-ASN1LengthArray $username.Count
-        [Byte[]]$cname_length2 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + 1)
-        [Byte[]]$cname_length3 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + $cname_length2.Count + 2)
-        [Byte[]]$cname_length4 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + 8)
-        [Byte[]]$cname_length5 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + 9)
-        $grouped_length = $address_length.Count + $address_length2.Count + $address_length3.Count + $address_length4.Count + $address_length5.Count + $namestring.Count +
-            $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count + $realm.Count + $realm_length.Count +
-            $realm_length2.Count + $username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + $cname_length5.Count
+        [Byte[]]$namestring1_length = Get-ASN1LengthArray $NameString.Count
+        [Byte[]]$namestring_length = Get-ASN1LengthArray ($NameString.Count + $namestring1_length.Count + 6)
+        [Byte[]]$namestring_length2 = Get-ASN1LengthArray ($NameString.Count + $namestring1_length.Count + $namestring_length.Count + 7)
+        [Byte[]]$sname_length = Get-ASN1LengthArray ($NameString.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + 13)
+        [Byte[]]$sname_length2 = Get-ASN1LengthArray ($NameString.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + 14)
+        [Byte[]]$realm_length = Get-ASN1LengthArray $Realm.Count
+        [Byte[]]$realm_length2 = Get-ASN1LengthArray ($Realm.Count + $realm_length.Count + 1)
+        [Byte[]]$cname_length = Get-ASN1LengthArray $Username.Count
+        [Byte[]]$cname_length2 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + 1)
+        [Byte[]]$cname_length3 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + $cname_length2.Count + 2)
+        [Byte[]]$cname_length4 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + 8)
+        [Byte[]]$cname_length5 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + 9)
+        $grouped_length = $address_length.Count + $address_length2.Count + $address_length3.Count + $address_length4.Count + $address_length5.Count + $NameString.Count +
+            $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count + $Realm.Count + $realm_length.Count +
+            $realm_length2.Count + $Username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + $cname_length5.Count
         [Byte[]]$reqbody_length = Get-ASN1LengthArrayLong ($grouped_length + 86)
         [Byte[]]$reqbody_length2 = Get-ASN1LengthArrayLong ($grouped_length + $reqbody_length.Count + 87)
         [Byte[]]$message_length = Get-ASN1LengthArrayLong ($grouped_length + $reqbody_length.Count + $reqbody_length2.Count + $pac_extra_length + 114)
@@ -385,95 +427,95 @@ function Invoke-DNSUpdate
         [Byte[]]$asreq_length = [System.BitConverter]::GetBytes($grouped_length + $reqbody_length.Count + $reqbody_length2.Count + $message_length.Count + $message_length2.Count +
             $pac_extra_length + 116)[3..0]
 
-        $packet_KerberosASREQ = New-Object System.Collections.Specialized.OrderedDictionary
-        $packet_KerberosASREQ.Add("KerberosASREQ_Length",$asreq_length)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_Encoding",[Byte[]](0x6a) + $message_length2 + [Byte[]](0x30) + $message_length)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_PVNO_Encoding",[Byte[]](0xa1,0x03,0x02,0x01))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_PVNO",[Byte[]](0x05))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_MSGType_Encoding",[Byte[]](0xa2,0x03,0x02,0x01))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_MSGType",[Byte[]](0x0a))
+        $KerberosASREQ = New-Object System.Collections.Specialized.OrderedDictionary
+        $KerberosASREQ.Add("Length",$asreq_length)
+        $KerberosASREQ.Add("Message_Encoding",[Byte[]](0x6a) + $message_length2 + [Byte[]](0x30) + $message_length)
+        $KerberosASREQ.Add("Message_PVNO_Encoding",[Byte[]](0xa1,0x03,0x02,0x01))
+        $KerberosASREQ.Add("Message_PVNO",[Byte[]](0x05))
+        $KerberosASREQ.Add("Message_MSGType_Encoding",[Byte[]](0xa2,0x03,0x02,0x01))
+        $KerberosASREQ.Add("Message_MSGType",[Byte[]](0x0a))
 
-        if($pac)
+        if($PAC)
         {
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData_Encoding",[Byte[]](0xa3,0x5c,0x30,0x5a,0x30,0x4c,0xa1,0x03,0x02,0x01,0x02))
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData0_Type_Encoding",[Byte[]](0xa2,0x45,0x04,0x43,0x30,0x41,0xa0,0x03,0x02,0x01))
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData0_Type",[Byte[]](0x12))
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData0_Value_Encoding",[Byte[]](0xa2,0x3a,0x04,0x38))
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData0_Value",$pac)
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData0_Signature",$pac_signature)
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData1_Type_Encoding",[Byte[]](0x30,0x0a,0xa1,0x04,0x02,0x02))
+            $KerberosASREQ.Add("Message_PAData_Encoding",[Byte[]](0xa3,0x5c,0x30,0x5a,0x30,0x4c,0xa1,0x03,0x02,0x01,0x02))
+            $KerberosASREQ.Add("Message_PAData0_Type_Encoding",[Byte[]](0xa2,0x45,0x04,0x43,0x30,0x41,0xa0,0x03,0x02,0x01))
+            $KerberosASREQ.Add("Message_PAData0_Type",[Byte[]](0x12))
+            $KerberosASREQ.Add("Message_PAData0_Value_Encoding",[Byte[]](0xa2,0x3a,0x04,0x38))
+            $KerberosASREQ.Add("Message_PAData0_Value",$PAC)
+            $KerberosASREQ.Add("Message_PAData0_Signature",$PACSignature)
+            $KerberosASREQ.Add("Message_PAData1_Type_Encoding",[Byte[]](0x30,0x0a,0xa1,0x04,0x02,0x02))
         }
         else
         {
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData_Encoding",[Byte[]](0xa3,0x0e,0x30,0x0c,0x30,0x0a))
-            $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData1_Type_Encoding",[Byte[]](0xa1,0x04,0x02,0x02))
+            $KerberosASREQ.Add("Message_PAData_Encoding",[Byte[]](0xa3,0x0e,0x30,0x0c,0x30,0x0a))
+            $KerberosASREQ.Add("Message_PAData1_Type_Encoding",[Byte[]](0xa1,0x04,0x02,0x02))
         }
 
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData1_Type",[Byte[]](0x00,0x95))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData1_Value_Encoding",[Byte[]](0xa2,0x02,0x04))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_PAData1_Value",[Byte[]](0x00))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_Encoding",[Byte[]](0xa4) + $reqbody_length2 + [Byte[]](0x30) + $reqbody_length)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_KDCOptions_Encoding",[Byte[]](0xa0,0x07,0x03,0x05))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_KDCOptions_Padding",[Byte[]](0x00))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_KDCOptions",[Byte[]](0x50,0x00,0x00,0x00))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_CName_Encoding",[Byte[]](0xa1) + $cname_length5 + [Byte[]](0x30) + $cname_length4)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_CName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_CName_NameType",[Byte[]](0x01))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_CName_NameString_Encoding",[Byte[]](0xa1) + $cname_length3 + [Byte[]](0x30) + $cname_length2 + [Byte[]](0x1b) + $cname_length)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_CName_NameString",$username)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_Realm_Encoding",[Byte[]](0xa2) + $realm_length2 + [Byte[]](0x1b) + $realm_length)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_Realm",$realm)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_Encoding",[Byte[]](0xa3) + $sname_length2 + [Byte[]](0x30) + $sname_length)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_NameType",[Byte[]](0x01))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_NameString_Encoding",[Byte[]](0xa1) + $namestring_length2 + [Byte[]](0x30) + $namestring_length)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_NameString0_Encoding",[Byte[]](0x1b,0x03))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_NameString0",[Byte[]](0x44,0x4e,0x53))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_NameString1_Encoding",[Byte[]](0x1b) + $namestring1_length) #50
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_SName_NameString1",$namestring)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_Till_Encoding",[Byte[]](0xa5,0x11,0x18,0x0f))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_Till",$till)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_Nonce_Encoding",[Byte[]](0xa7,0x06,0x02,0x04))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_Nonce",$nonce)
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_EType_Encoding",[Byte[]](0xa8,0x15,0x30,0x13))
-        $packet_KerberosASREQ.Add("KerberosASREQ_Message_REQBody_EType",[Byte[]](0x02,0x01,0x12,0x02,0x01,0x11,0x02,0x01,0x17,0x02,0x01,0x18,0x02,0x02,0xff,0x79,0x02,0x01,0x03))
+        $KerberosASREQ.Add("Message_PAData1_Type",[Byte[]](0x00,0x95))
+        $KerberosASREQ.Add("Message_PAData1_Value_Encoding",[Byte[]](0xa2,0x02,0x04))
+        $KerberosASREQ.Add("Message_PAData1_Value",[Byte[]](0x00))
+        $KerberosASREQ.Add("Message_REQBody_Encoding",[Byte[]](0xa4) + $reqbody_length2 + [Byte[]](0x30) + $reqbody_length)
+        $KerberosASREQ.Add("Message_REQBody_KDCOptions_Encoding",[Byte[]](0xa0,0x07,0x03,0x05))
+        $KerberosASREQ.Add("Message_REQBody_KDCOptions_Padding",[Byte[]](0x00))
+        $KerberosASREQ.Add("Message_REQBody_KDCOptions",[Byte[]](0x50,0x00,0x00,0x00))
+        $KerberosASREQ.Add("Message_REQBody_CName_Encoding",[Byte[]](0xa1) + $cname_length5 + [Byte[]](0x30) + $cname_length4)
+        $KerberosASREQ.Add("Message_REQBody_CName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosASREQ.Add("Message_REQBody_CName_NameType",[Byte[]](0x01))
+        $KerberosASREQ.Add("Message_REQBody_CName_NameString_Encoding",[Byte[]](0xa1) + $cname_length3 + [Byte[]](0x30) + $cname_length2 + [Byte[]](0x1b) + $cname_length)
+        $KerberosASREQ.Add("Message_REQBody_CName_NameString",$Username)
+        $KerberosASREQ.Add("Message_REQBody_Realm_Encoding",[Byte[]](0xa2) + $realm_length2 + [Byte[]](0x1b) + $realm_length)
+        $KerberosASREQ.Add("Message_REQBody_Realm",$Realm)
+        $KerberosASREQ.Add("Message_REQBody_SName_Encoding",[Byte[]](0xa3) + $sname_length2 + [Byte[]](0x30) + $sname_length)
+        $KerberosASREQ.Add("Message_REQBody_SName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosASREQ.Add("Message_REQBody_SName_NameType",[Byte[]](0x01))
+        $KerberosASREQ.Add("Message_REQBody_SName_NameString_Encoding",[Byte[]](0xa1) + $namestring_length2 + [Byte[]](0x30) + $namestring_length)
+        $KerberosASREQ.Add("Message_REQBody_SName_NameString0_Encoding",[Byte[]](0x1b,0x03))
+        $KerberosASREQ.Add("Message_REQBody_SName_NameString0",[Byte[]](0x44,0x4e,0x53))
+        $KerberosASREQ.Add("Message_REQBody_SName_NameString1_Encoding",[Byte[]](0x1b) + $namestring1_length) #50
+        $KerberosASREQ.Add("Message_REQBody_SName_NameString1",$NameString)
+        $KerberosASREQ.Add("Message_REQBody_Till_Encoding",[Byte[]](0xa5,0x11,0x18,0x0f))
+        $KerberosASREQ.Add("Message_REQBody_Till",$till)
+        $KerberosASREQ.Add("Message_REQBody_Nonce_Encoding",[Byte[]](0xa7,0x06,0x02,0x04))
+        $KerberosASREQ.Add("Message_REQBody_Nonce",$Nonce)
+        $KerberosASREQ.Add("Message_REQBody_EType_Encoding",[Byte[]](0xa8,0x15,0x30,0x13))
+        $KerberosASREQ.Add("Message_REQBody_EType",[Byte[]](0x02,0x01,0x12,0x02,0x01,0x11,0x02,0x01,0x17,0x02,0x01,0x18,0x02,0x02,0xff,0x79,0x02,0x01,0x03))
 
-        return $packet_KerberosASREQ
+        return $KerberosASREQ
     }
 
     function New-PacketKerberosAPREQ()
     {
-        param([Byte[]]$realm,[Byte[]]$spn,[Byte[]]$kvno,[Byte[]]$ticket,[Byte[]]$authenticator,[Byte[]]$authenticator_signature)
+        param([Byte[]]$Realm,[Byte[]]$SPN,[Byte[]]$KVNO,[Byte[]]$Ticket,[Byte[]]$Authenticator,[Byte[]]$AuthenticatorSignature)
 
-        $authenticator += $authenticator_signature
-        $parameter_length = $realm.Count + $spn.Count + $ticket.Count + $authenticator.Count
-        [Byte[]]$authenticator_length = Get-ASN1LengthArrayLong $authenticator.Count
-        [Byte[]]$authenticator_length2 = Get-ASN1LengthArrayLong ($authenticator.Count + $authenticator_length.Count + 1)
-        [Byte[]]$authenticator_length3 = Get-ASN1LengthArrayLong ($authenticator.Count + $authenticator_length.Count + $authenticator_length2.Count + 7)
-        [Byte[]]$authenticator_length4 = Get-ASN1LengthArrayLong ($authenticator.Count + $authenticator_length.Count + $authenticator_length2.Count + $authenticator_length3.Count + 8)
+        $Authenticator += $AuthenticatorSignature
+        $parameter_length = $Realm.Count + $SPN.Count + $ticket.Count + $Authenticator.Count
+        [Byte[]]$authenticator_length = Get-ASN1LengthArrayLong $Authenticator.Count
+        [Byte[]]$authenticator_length2 = Get-ASN1LengthArrayLong ($Authenticator.Count + $authenticator_length.Count + 1)
+        [Byte[]]$Authenticator_length3 = Get-ASN1LengthArrayLong ($authenticator.Count + $authenticator_length.Count + $authenticator_length2.Count + 7)
+        [Byte[]]$authenticator_length4 = Get-ASN1LengthArrayLong ($Authenticator.Count + $authenticator_length.Count + $authenticator_length2.Count + $authenticator_length3.Count + 8)
         [Byte[]]$ticket_length = Get-ASN1LengthArrayLong $ticket.Count
         [Byte[]]$ticket_length2 = Get-ASN1LengthArrayLong ($ticket.Count + $ticket_length.Count + 1)
         [Byte[]]$ticket_length3 = Get-ASN1LengthArrayLong ($ticket.Count + $ticket_length.Count + $ticket_length2.Count + 12)
         [Byte[]]$ticket_length4 = Get-ASN1LengthArrayLong ($ticket.Count + $ticket_length.Count + $ticket_length2.Count  + $ticket_length3.Count + 13)
-        [Byte[]]$namestring1_length = Get-ASN1LengthArray $spn.Count
-        [Byte[]]$namestring_length = Get-ASN1LengthArray ($spn.Count + $namestring_length.Count + 4)
-        [Byte[]]$namestring_length2 = Get-ASN1LengthArray ($spn.Count + $namestring1_length.Count + $namestring_length.Count + 5)
-        [Byte[]]$sname_length = Get-ASN1LengthArray ($spn.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + 4)
-        [Byte[]]$sname_length2 = Get-ASN1LengthArray ($spn.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + 5)
-        [Byte[]]$sname_length3 = Get-ASN1LengthArray ($spn.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count + 11)
-        [Byte[]]$sname_length4 = Get-ASN1LengthArray ($spn.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
+        [Byte[]]$namestring1_length = Get-ASN1LengthArray $SPN.Count
+        [Byte[]]$namestring_length = Get-ASN1LengthArray ($SPN.Count + $namestring_length.Count + 4)
+        [Byte[]]$namestring_length2 = Get-ASN1LengthArray ($SPN.Count + $namestring1_length.Count + $namestring_length.Count + 5)
+        [Byte[]]$sname_length = Get-ASN1LengthArray ($SPN.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + 4)
+        [Byte[]]$sname_length2 = Get-ASN1LengthArray ($SPN.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + 5)
+        [Byte[]]$sname_length3 = Get-ASN1LengthArray ($SPN.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count + 11)
+        [Byte[]]$sname_length4 = Get-ASN1LengthArray ($SPN.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
             $sname_length3.Count + 12)
-        [Byte[]]$realm_length = Get-ASN1LengthArray $realm.Count
-        [Byte[]]$realm_length2 = Get-ASN1LengthArray ($realm.Count + $realm_length.Count + 1)
+        [Byte[]]$realm_length = Get-ASN1LengthArray $Realm.Count
+        [Byte[]]$realm_length2 = Get-ASN1LengthArray ($Realm.Count + $realm_length.Count + 1)
         [Byte[]]$ticket_length5 = Get-ASN1LengthArrayLong ($ticket.Count + $ticket_length.Count + $ticket_length2.Count + $ticket_length3.Count + $ticket_length4.Count +
-            $spn.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
-            $sname_length3.Count + $sname_length4.Count + $realm.Count + $realm_length.Count + $realm_length2.Count + 34)
+            $SPN.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
+            $sname_length3.Count + $sname_length4.Count + $Realm.Count + $realm_length.Count + $realm_length2.Count + 34)
         [Byte[]]$ticket_length6 = Get-ASN1LengthArrayLong ($ticket.Count + $ticket_length.Count + $ticket_length2.Count + $ticket_length3.Count + $ticket_length4.Count +
-            $spn.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
-            $sname_length3.Count + $sname_length4.Count + $realm.Count + $realm_length.Count + $realm_length2.Count + $ticket_length5.Count + 35)
+            $SPN.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
+            $sname_length3.Count + $sname_length4.Count + $Realm.Count + $realm_length.Count + $realm_length2.Count + $ticket_length5.Count + 35)
         [Byte[]]$ticket_length7 = Get-ASN1LengthArrayLong ($ticket.Count + $ticket_length.Count + $ticket_length2.Count + $ticket_length3.Count + $ticket_length4.Count +
-            $spn.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
-            $sname_length3.Count + $sname_length4.Count + $realm.Count + $realm_length.Count + $realm_length2.Count + $ticket_length5.Count + $ticket_length6.Count + 36)
+            $SPN.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
+            $sname_length3.Count + $sname_length4.Count + $Realm.Count + $realm_length.Count + $realm_length2.Count + $ticket_length5.Count + $ticket_length6.Count + 36)
         [Byte[]]$apreq_length = Get-ASN1LengthArrayLong ($parameter_length + $ticket_length.Count + $ticket_length2.Count + $ticket_length3.Count +
             $ticket_length4.Count + $namestring1_length.Count + $namestring_length.Count + $namestring_length2.Count + $sname_length.Count + $sname_length2.Count +
             $sname_length3.Count + $sname_length4.Count + $realm_length.Count + $realm_length2.Count + $ticket_length5.Count + $ticket_length6.Count + $ticket_length7.Count + 73)
@@ -486,45 +528,45 @@ function Invoke-DNSUpdate
             $sname_length3.Count + $sname_length4.Count + $realm_length.Count + $realm_length2.Count + $ticket_length5.Count + $ticket_length6.Count + $ticket_length7.Count +
             $apreq_length.Count + $apreq_length2.Count + 88)
         
-        $packet_KerberosAPREQ = New-Object System.Collections.Specialized.OrderedDictionary
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Length",([Byte[]](0x60) + $length))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_MechToken_ThisMech",[Byte[]](0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_MechToken_TokenID",[Byte[]](0x01,0x00))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_APReq_Encoding",[Byte[]](0x6e) + $apreq_length2 + [Byte[]](0x30) + $apreq_length)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_PVNO_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_PVNO",[Byte[]]0x05)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_MSGType_Encoding",[Byte[]](0xa1,0x03,0x02,0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_MSGType",[Byte[]](0x0e))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Padding_Encoding",[Byte[]](0xa2,0x07,0x03,0x05))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Padding",[Byte[]](0x00))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_APOptions",[Byte[]](0x20,0x00,0x00,0x00))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_Encoding",[Byte[]](0xa3) + $ticket_length7 + [Byte[]](0x61) + $ticket_length6 + [Byte[]](0x30) + $ticket_length5)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_TKTVNO_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_TKTVNO",[Byte[]](0x05))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_Realm_Encoding",[Byte[]](0xa1) + $realm_length2 + [Byte[]](0x1b) + $realm_length)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_Realm",$realm)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_Encoding",[Byte[]](0xa2) + $sname_length4 + [Byte[]](0x30) + $sname_length3)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_NameType",[Byte[]](0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_NameString_Encoding",[Byte[]](0xa1) + $sname_length2 + [Byte[]](0x30) + $sname_length)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_NameString0_Encoding",[Byte[]](0x1b,0x03))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_NameString0",[Byte[]](0x44,0x4e,0x53))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_NameString1_Encoding",[Byte[]](0x1b) + $namestring1_length)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_SName_NameString1",$spn)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_EncPart_Encoding",[Byte[]](0xa3) + $ticket_length4 + [Byte[]](0x30) + $ticket_length3)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_EncPart_EType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_EncPart_EType",[Byte[]](0x12))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_EncPart_KVNO_Encoding",[Byte[]](0xa1,0x03,0x02,0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_EncPart_KVNO",$kvno)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_EncPart_Cipher_Encoding",[Byte[]](0xa2) + $ticket_length2 + [Byte[]](0x04) + $ticket_length)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Ticket_EncPart_Cipher",$ticket)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Authenticator_Encoding",[Byte[]](0xa4) + $authenticator_length4 + [Byte[]](0x30) + $authenticator_length3)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Authenticator_EType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Authenticator_EType",[Byte[]](0x12))
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Authenticator_Cipher_Encoding",[Byte[]](0xa2) + $authenticator_length2 + [Byte[]](0x04) + $authenticator_length)
-        $packet_KerberosAPREQ.Add("KerberosAPREQ_Authenticator_Cipher",$authenticator)
+        $KerberosAPREQ = New-Object System.Collections.Specialized.OrderedDictionary
+        $KerberosAPREQ.Add("Length",([Byte[]](0x60) + $length))
+        $KerberosAPREQ.Add("MechToken_ThisMech",[Byte[]](0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02))
+        $KerberosAPREQ.Add("MechToken_TokenID",[Byte[]](0x01,0x00))
+        $KerberosAPREQ.Add("APReq_Encoding",[Byte[]](0x6e) + $apreq_length2 + [Byte[]](0x30) + $apreq_length)
+        $KerberosAPREQ.Add("PVNO_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAPREQ.Add("PVNO",[Byte[]]0x05)
+        $KerberosAPREQ.Add("MSGType_Encoding",[Byte[]](0xa1,0x03,0x02,0x01))
+        $KerberosAPREQ.Add("MSGType",[Byte[]](0x0e))
+        $KerberosAPREQ.Add("Padding_Encoding",[Byte[]](0xa2,0x07,0x03,0x05))
+        $KerberosAPREQ.Add("Padding",[Byte[]](0x00))
+        $KerberosAPREQ.Add("APOptions",[Byte[]](0x20,0x00,0x00,0x00))
+        $KerberosAPREQ.Add("Ticket_Encoding",[Byte[]](0xa3) + $ticket_length7 + [Byte[]](0x61) + $ticket_length6 + [Byte[]](0x30) + $ticket_length5)
+        $KerberosAPREQ.Add("Ticket_TKTVNO_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAPREQ.Add("Ticket_TKTVNO",[Byte[]](0x05))
+        $KerberosAPREQ.Add("Ticket_Realm_Encoding",[Byte[]](0xa1) + $realm_length2 + [Byte[]](0x1b) + $realm_length)
+        $KerberosAPREQ.Add("Ticket_Realm",$Realm)
+        $KerberosAPREQ.Add("Ticket_SName_Encoding",[Byte[]](0xa2) + $sname_length4 + [Byte[]](0x30) + $sname_length3)
+        $KerberosAPREQ.Add("Ticket_SName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAPREQ.Add("Ticket_SName_NameType",[Byte[]](0x01))
+        $KerberosAPREQ.Add("Ticket_SName_NameString_Encoding",[Byte[]](0xa1) + $sname_length2 + [Byte[]](0x30) + $sname_length)
+        $KerberosAPREQ.Add("Ticket_SName_NameString0_Encoding",[Byte[]](0x1b,0x03))
+        $KerberosAPREQ.Add("Ticket_SName_NameString0",[Byte[]](0x44,0x4e,0x53))
+        $KerberosAPREQ.Add("Ticket_SName_NameString1_Encoding",[Byte[]](0x1b) + $namestring1_length)
+        $KerberosAPREQ.Add("Ticket_SName_NameString1",$SPN)
+        $KerberosAPREQ.Add("Ticket_EncPart_Encoding",[Byte[]](0xa3) + $ticket_length4 + [Byte[]](0x30) + $ticket_length3)
+        $KerberosAPREQ.Add("Ticket_EncPart_EType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAPREQ.Add("Ticket_EncPart_EType",[Byte[]](0x12))
+        $KerberosAPREQ.Add("Ticket_EncPart_KVNO_Encoding",[Byte[]](0xa1,0x03,0x02,0x01))
+        $KerberosAPREQ.Add("Ticket_EncPart_KVNO",$KVNO)
+        $KerberosAPREQ.Add("Ticket_EncPart_Cipher_Encoding",[Byte[]](0xa2) + $ticket_length2 + [Byte[]](0x04) + $ticket_length)
+        $KerberosAPREQ.Add("Ticket_EncPart_Cipher",$ticket)
+        $KerberosAPREQ.Add("Authenticator_Encoding",[Byte[]](0xa4) + $authenticator_length4 + [Byte[]](0x30) + $authenticator_length3)
+        $KerberosAPREQ.Add("Authenticator_EType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAPREQ.Add("Authenticator_EType",[Byte[]](0x12))
+        $KerberosAPREQ.Add("Authenticator_Cipher_Encoding",[Byte[]](0xa2) + $authenticator_length2 + [Byte[]](0x04) + $authenticator_length)
+        $KerberosAPREQ.Add("Authenticator_Cipher",$Authenticator)
 
-        return $packet_KerberosAPREQ
+        return $KerberosAPREQ
     }
 
     function Unprotect-KerberosASREP
@@ -558,30 +600,30 @@ function Invoke-DNSUpdate
         [String]$confounder = [String](1..16 | ForEach-Object {"{0:X2}" -f (Get-Random -Minimum 1 -Maximum 255)})
         [Byte[]]$confounder = $confounder.Split(" ") | ForEach-Object{[Char][System.Convert]::ToInt16($_,16)}
 
-        [Byte[]]$PAC_Timestamp = $confounder +
+        [Byte[]]$PAC_timestamp = $confounder +
                                     0x30,0x1a,0xa0,0x11,0x18,0x0f +
                                     $timestamp + 
                                     0xa1,0x05,0x02,0x03,0x01,0x70,0x16
         
-        return $PAC_Timestamp
+        return $PAC_timestamp
     }
 
     function New-KerberosAuthenticator
     {
-        param([Byte[]]$realm,[Byte[]]$username,[Byte[]]$subkey,[Byte[]]$sequence_number)
+        param([Byte[]]$Realm,[Byte[]]$Username,[Byte[]]$SubKey,[Byte[]]$SequenceNumber)
 
-        $parameter_length = $realm.Count + $username.Count + $subkey.Count
-        [Byte[]]$subkey_length = Get-ASN1LengthArray $subkey.Count
-        [Byte[]]$subkey_length2 = Get-ASN1LengthArray ($subkey.Count + $subkey_length.Count + 1)
-        [Byte[]]$subkey_length3 = Get-ASN1LengthArray ($subkey.Count + $subkey_length.Count + $subkey_length2.Count + 7)
-        [Byte[]]$subkey_length4 = Get-ASN1LengthArray ($subkey.Count + $subkey_length.Count + $subkey_length2.Count + $subkey_length3.Count + 8)
-        [Byte[]]$cname_length = Get-ASN1LengthArray $username.Count
-        [Byte[]]$cname_length2 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + 1)
-        [Byte[]]$cname_length3 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + $cname_length2.Count + 2)
-        [Byte[]]$cname_length4 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + 8)
-        [Byte[]]$cname_length5 = Get-ASN1LengthArray ($username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + 9)
-        [Byte[]]$crealm_length = Get-ASN1LengthArray $realm.Count
-        [Byte[]]$crealm_length2 = Get-ASN1LengthArray ($realm.Count + $crealm_length.Count + 1)
+        $parameter_length = $Realm.Count + $Username.Count + $SubKey.Count
+        [Byte[]]$subkey_length = Get-ASN1LengthArray $SubKey.Count
+        [Byte[]]$subkey_length2 = Get-ASN1LengthArray ($SubKey.Count + $subkey_length.Count + 1)
+        [Byte[]]$subkey_length3 = Get-ASN1LengthArray ($SubKey.Count + $subkey_length.Count + $subkey_length2.Count + 7)
+        [Byte[]]$subkey_length4 = Get-ASN1LengthArray ($SubKey.Count + $subkey_length.Count + $subkey_length2.Count + $subkey_length3.Count + 8)
+        [Byte[]]$cname_length = Get-ASN1LengthArray $Username.Count
+        [Byte[]]$cname_length2 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + 1)
+        [Byte[]]$cname_length3 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + $cname_length2.Count + 2)
+        [Byte[]]$cname_length4 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + 8)
+        [Byte[]]$cname_length5 = Get-ASN1LengthArray ($Username.Count + $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + 9)
+        [Byte[]]$crealm_length = Get-ASN1LengthArray $Realm.Count
+        [Byte[]]$crealm_length2 = Get-ASN1LengthArray ($Realm.Count + $crealm_length.Count + 1)
         [Byte[]]$authenticator_length = Get-ASN1LengthArrayLong ($parameter_length + 99 + $crealm_length.Count + $crealm_length2.Count +
             $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + $cname_length5.Count + $subkey_length.Count + 
             $subkey_length2.Count + $subkey_length3.Count + $subkey_length4.Count)
@@ -589,37 +631,37 @@ function Invoke-DNSUpdate
             $cname_length.Count + $cname_length2.Count + $cname_length3.Count + $cname_length4.Count + $cname_length5.Count + $subkey_length.Count + 
             $subkey_length2.Count + $subkey_length3.Count + $subkey_length4.Count + $authenticator_length.Count)
 
-        $packet_KerberosAuthenticator = New-Object System.Collections.Specialized.OrderedDictionary
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_Encoding",[Byte[]](0x62) + $authenticator_length2 + [Byte[]](0x30) + $authenticator_length)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_AuthenticatorVNO_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_AuthenticatorVNO",[Byte[]](0x05))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CRealm_Encoding",[Byte[]](0xa1) + $crealm_length2 + [Byte[]](0x1b) + $crealm_length)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CRealm",$realm)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CName_Encoding",[Byte[]](0xa2) + $cname_length5 + [Byte[]](0x30) + $cname_length4)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CName_NameType",[Byte[]](0x01))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CName_CNameString_Encoding",[Byte[]](0xa1) + $cname_length3 + [Byte[]](0x30) +
+        $KerberosAuthenticator = New-Object System.Collections.Specialized.OrderedDictionary
+        $KerberosAuthenticator.Add("Encoding",[Byte[]](0x62) + $authenticator_length2 + [Byte[]](0x30) + $authenticator_length)
+        $KerberosAuthenticator.Add("AuthenticatorVNO_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAuthenticator.Add("AuthenticatorVNO",[Byte[]](0x05))
+        $KerberosAuthenticator.Add("CRealm_Encoding",[Byte[]](0xa1) + $crealm_length2 + [Byte[]](0x1b) + $crealm_length)
+        $KerberosAuthenticator.Add("CRealm",$Realm)
+        $KerberosAuthenticator.Add("CName_Encoding",[Byte[]](0xa2) + $cname_length5 + [Byte[]](0x30) + $cname_length4)
+        $KerberosAuthenticator.Add("CName_NameType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAuthenticator.Add("CName_NameType",[Byte[]](0x01))
+        $KerberosAuthenticator.Add("CName_CNameString_Encoding",[Byte[]](0xa1) + $cname_length3 + [Byte[]](0x30) +
             $cname_length2 + [Byte[]](0x1b) + $cname_length)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CName_CNameString",$username)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Encoding",[Byte[]](0xa3,0x25,0x30,0x23,0xa0,0x05,0x02,0x03))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_CKSumType",[Byte[]](0x00,0x80,0x03))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Length_Encoding",[Byte[]](0xa1,0x1a,0x04,0x18))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Length",[Byte[]](0x10,0x00,0x00,0x00))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Bnd",[Byte[]](0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Flags",[Byte[]](0x36,0x01,0x00,0x00))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_CUSec_Encoding",[Byte[]](0xa4,0x05,0x02,0x03))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_CUSec",(Get-KerberosMicrosecond))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_CTime_Encoding",[Byte[]](0xa5,0x11,0x18,0x0f))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_CTime",(Get-KerberosTimestampUTC))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Subkey_Encoding",[Byte[]](0xa6) + $subkey_length4 + [Byte[]](0x30) + $subkey_length3)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Subkey_KeyType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Subkey_KeyType",[Byte[]](0x12))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Subkey_KeyValue_Encoding",[Byte[]](0xa1) + $subkey_length2 + [Byte[]](0x04) + $subkey_length)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_Subkey_KeyValue",$subkey)
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_SEQNumber_Encoding",[Byte[]](0xa7,0x06,0x02,0x04))
-        $packet_KerberosAuthenticator.Add("KerberosAuthenticator_CKSum_SEQNumber",$sequence_number)
+        $KerberosAuthenticator.Add("CName_CNameString",$Username)
+        $KerberosAuthenticator.Add("CKSum_Encoding",[Byte[]](0xa3,0x25,0x30,0x23,0xa0,0x05,0x02,0x03))
+        $KerberosAuthenticator.Add("CKSum_CKSumType",[Byte[]](0x00,0x80,0x03))
+        $KerberosAuthenticator.Add("CKSum_Length_Encoding",[Byte[]](0xa1,0x1a,0x04,0x18))
+        $KerberosAuthenticator.Add("CKSum_Length",[Byte[]](0x10,0x00,0x00,0x00))
+        $KerberosAuthenticator.Add("CKSum_Bnd",[Byte[]](0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00))
+        $KerberosAuthenticator.Add("CKSum_Flags",[Byte[]](0x36,0x01,0x00,0x00))
+        $KerberosAuthenticator.Add("CKSum_CUSec_Encoding",[Byte[]](0xa4,0x05,0x02,0x03))
+        $KerberosAuthenticator.Add("CKSum_CUSec",(Get-KerberosMicrosecond))
+        $KerberosAuthenticator.Add("CKSum_CTime_Encoding",[Byte[]](0xa5,0x11,0x18,0x0f))
+        $KerberosAuthenticator.Add("CKSum_CTime",(Get-KerberosTimestampUTC))
+        $KerberosAuthenticator.Add("CKSum_Subkey_Encoding",[Byte[]](0xa6) + $subkey_length4 + [Byte[]](0x30) + $subkey_length3)
+        $KerberosAuthenticator.Add("CKSum_Subkey_KeyType_Encoding",[Byte[]](0xa0,0x03,0x02,0x01))
+        $KerberosAuthenticator.Add("CKSum_Subkey_KeyType",[Byte[]](0x12))
+        $KerberosAuthenticator.Add("CKSum_Subkey_KeyValue_Encoding",[Byte[]](0xa1) + $subkey_length2 + [Byte[]](0x04) + $subkey_length)
+        $KerberosAuthenticator.Add("CKSum_Subkey_KeyValue",$SubKey)
+        $KerberosAuthenticator.Add("CKSum_SEQNumber_Encoding",[Byte[]](0xa7,0x06,0x02,0x04))
+        $KerberosAuthenticator.Add("CKSum_SEQNumber",$SequenceNumber)
 
-        return $packet_KerberosAuthenticator
+        return $KerberosAuthenticator
     }
 
     function Get-KerberosTimestampUTC
@@ -690,9 +732,9 @@ function Invoke-DNSUpdate
     
     function Get-ASN1LengthArray
     {
-        param([Int]$length)
+        param([Int]$Length)
 
-        [Byte[]]$asn1 = [System.BitConverter]::GetBytes($length)
+        [Byte[]]$asn1 = [System.BitConverter]::GetBytes($Length)
 
         if($asn1[1] -eq 0)
         {
@@ -708,9 +750,9 @@ function Invoke-DNSUpdate
     
     function Get-ASN1LengthArrayLong
     {
-        param([Int]$length)
+        param([Int]$Length)
 
-        [Byte[]]$asn1 = [System.BitConverter]::GetBytes($length)
+        [Byte[]]$asn1 = [System.BitConverter]::GetBytes($Length)
 
         if($asn1[1] -eq 0)
         {
@@ -728,9 +770,9 @@ function Invoke-DNSUpdate
     
     function New-RandomByteArray
     {
-        param([Int]$length,[Int]$minimum=1,[Int]$maximum=255)
+        param([Int]$Length,[Int]$Minimum=1,[Int]$Maximum=255)
 
-        [String]$random = [String](1..$length | ForEach-Object {"{0:X2}" -f (Get-Random -Minimum $minimum -Maximum $maximum)})
+        [String]$random = [String](1..$Length | ForEach-Object {"{0:X2}" -f (Get-Random -Minimum $Minimum -Maximum $Maximum)})
         [Byte[]]$random = $random.Split(" ") | ForEach-Object{[Char][System.Convert]::ToInt16($_,16)}
 
         return $random
@@ -738,9 +780,9 @@ function Invoke-DNSUpdate
     
     function New-DNSNameArray
     {
-        param([String]$name)
+        param([String]$Name)
 
-        $character_array = $name.ToCharArray()
+        $character_array = $Name.ToCharArray()
         [Array]$index_array = 0..($character_array.Count - 1) | Where-Object {$character_array[$_] -eq '.'}
 
         if($index_array.Count -gt 0)
@@ -752,84 +794,157 @@ function Invoke-DNSUpdate
             {
                 $name_end = $index - $name_start
                 [Byte[]]$name_array += $name_end
-                [Byte[]]$name_array += [System.Text.Encoding]::UTF8.GetBytes($name.Substring($name_start,$name_end))
+                [Byte[]]$name_array += [System.Text.Encoding]::UTF8.GetBytes($Name.Substring($name_start,$name_end))
                 $name_start = $index + 1
             }
 
-            [Byte[]]$name_array += ($name.Length - $name_start)
-            [Byte[]]$name_array += [System.Text.Encoding]::UTF8.GetBytes($name.Substring($name_start))
+            [Byte[]]$name_array += ($Name.Length - $name_start)
+            [Byte[]]$name_array += [System.Text.Encoding]::UTF8.GetBytes($Name.Substring($name_start))
         }
         else
         {
-            [Byte[]]$name_array = $name.Length
-            [Byte[]]$name_array += [System.Text.Encoding]::UTF8.GetBytes($name.Substring($name_start))
+            [Byte[]]$name_array = $Name.Length
+            [Byte[]]$name_array += [System.Text.Encoding]::UTF8.GetBytes($Name.Substring($name_start))
         }
 
         return $name_array
     }
+
+    function New-PacketDNSQuery
+    {
+        param([String]$Name,[String]$Type)
+
+        switch ($Type)
+        {
+
+            'A'
+            {[Byte[]]$type = 0x00,0x01}
+
+            'AAAA'
+            {[Byte[]]$type = 0x00,0x1c}
+
+            'CNAME'
+            {[Byte[]]$type = 0x00,0x05}
+            
+            'MX'
+            {[Byte[]]$type = 0x00,0x0f}
+
+            'PTR'
+            {[Byte[]]$type = 0x00,0x0c}
+
+            'SRV'
+            {[Byte[]]$type = 0x00,0x21}
+
+            'TXT'
+            {[Byte[]]$type = 0x00,0x10}
+
+        }
+
+        [Byte[]]$name = (New-DNSNameArray $Name) + 0x00
+        [Byte[]]$length = [System.BitConverter]::GetBytes($Name.Count + 16)[1,0]
+        [Byte[]]$transaction_ID = New-RandomByteArray 2
+        $DNSQuery = New-Object System.Collections.Specialized.OrderedDictionary
+        $DNSQuery.Add("Length",$length)
+        $DNSQuery.Add("TransactionID",$transaction_ID)
+        $DNSQuery.Add("Flags",[Byte[]](0x01,0x00))
+        $DNSQuery.Add("Questions",[Byte[]](0x00,0x01))
+        $DNSQuery.Add("AnswerRRs",[Byte[]](0x00,0x00))
+        $DNSQuery.Add("AuthorityRRs",[Byte[]](0x00,0x00))
+        $DNSQuery.Add("AdditionalRRs",[Byte[]](0x00,0x00))
+        $DNSQuery.Add("Queries_Name",$name)
+        $DNSQuery.Add("Queries_Type",$type)
+        $DNSQuery.Add("Queries_Class",[Byte[]](0x00,0x01))
+
+        return $DNSQuery
+    }
     
     function New-PacketDNSQueryTKEY
     {
-        param([Byte[]]$tkey_name,[Byte[]]$apreq)
+        param([Byte[]]$Name,[byte[]]$Type,[Byte[]]$APReq)
     
-        [Byte[]]$transaction_id = New-RandomByteArray 2
-        $mechtoken_length = Get-ASN1LengthArrayLong ($apreq.Count)
-        $mechtoken_length2 = Get-ASN1LengthArrayLong ($apreq.Count + $mechtoken_length.Count + 1)
-        $innercontexttoken_length = Get-ASN1LengthArrayLong ($apreq.Count + $mechtoken_length.Count + $mechtoken_length2.Count + 17) # 31
-        $innercontexttoken_length2 = Get-ASN1LengthArrayLong ($apreq.Count + $mechtoken_length.Count + $mechtoken_length2.Count +
-            $innercontexttoken_length.Count + 18)
-        $spnego_length = Get-ASN1LengthArrayLong ($apreq.Count + $mechtoken_length.Count + $mechtoken_length2.Count +
-            $innercontexttoken_length.Count + $innercontexttoken_length2.Count + 27)
-        $grouped_length = $apreq.Count + $mechtoken_length.Count + $mechtoken_length2.Count + $innercontexttoken_length.Count +
-            $innercontexttoken_length2.Count + $spnego_length.Count + 25
-        $key_size = [System.BitConverter]::GetBytes($grouped_length + 3)[1,0]
-        $rd_length = [System.BitConverter]::GetBytes($grouped_length + $key_size.Count + 27)[1,0]
-        [Byte[]]$length = [System.BitConverter]::GetBytes($grouped_length + $tkey_name.Count + 57)[1,0]
-        $inception = [int64](([datetime]::UtcNow)-(get-date "1/1/1970")).TotalSeconds
-        $inception = [System.BitConverter]::GetBytes($inception)
-        $inception = $inception[3..0]
+        [Byte[]]$transaction_ID = New-RandomByteArray 2
 
-        $packet_DNSQueryTKEY = New-Object System.Collections.Specialized.OrderedDictionary
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Length",$length)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_TransactionID",$transaction_ID)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Flags",[Byte[]](0x00,0x00))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Questions",[Byte[]](0x00,0x01))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_AnswerRRs",[Byte[]](0x00,0x00))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_AuthorityRRs",[Byte[]](0x00,0x00))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_AdditionalRRs",[Byte[]](0x00,0x01))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_Name",$tkey_name)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_Type",[Byte[]](0x00,0xf9))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_Class",[Byte[]](0x00,0xff))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_Name",[Byte[]](0xc0,0x0c))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_Type",[Byte[]](0x00,0xf9))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_Class",[Byte[]](0x00,0xff))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_TTL",[Byte[]](0x00,0x00,0x00,0x00))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RDLength",$rd_length)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_Algorithm",[Byte[]](0x08,0x67,0x73,0x73,0x2d,0x74,0x73,0x69,0x67,0x00))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_Inception",$inception)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_Expiration",$inception)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_Mode",[Byte[]](0x00,0x03))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_Error",[Byte[]](0x00,0x00))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_KeySize",$key_size)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_SPNego_Encoding",[Byte[]](0x60) + $spnego_length)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_SPNego_ThisMech",[Byte[]](0x06,0x06,0x2b,0x06,0x01,0x05,0x05,0x02))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_SPNego_InnerContextToken_Encoding",[Byte[]](0xa0) + $innercontexttoken_length2 + [Byte[]](0x30) +
-            $innercontexttoken_length)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechTypes_Encoding",[Byte[]](0xa0,0x0d,0x30,0x0b))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechType0",[Byte[]](0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02))
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechToken_Encoding",[Byte[]](0xa2) + $mechtoken_length2 + [Byte[]](0x04) +
-            $mechtoken_length)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechToken_Token",$apreq)
-        $packet_DNSQueryTKEY.Add("DNSQueryTKEY_Queries_AdditionalRecords_RData_OtherSize",[Byte[]](0x00,0x00))
+        if($APReq)
+        {
+            $mechtoken_length = Get-ASN1LengthArrayLong ($APReq.Count)
+            $mechtoken_length2 = Get-ASN1LengthArrayLong ($APReq.Count + $mechtoken_length.Count + 1)
+            $innercontexttoken_length = Get-ASN1LengthArrayLong ($APReq.Count + $mechtoken_length.Count + $mechtoken_length2.Count + 17) # 31
+            $innercontexttoken_length2 = Get-ASN1LengthArrayLong ($APReq.Count + $mechtoken_length.Count + $mechtoken_length2.Count +
+                $innercontexttoken_length.Count + 18)
+            $spnego_length = Get-ASN1LengthArrayLong ($APReq.Count + $mechtoken_length.Count + $mechtoken_length2.Count +
+                $innercontexttoken_length.Count + $innercontexttoken_length2.Count + 27)
+            $grouped_length = $APReq.Count + $mechtoken_length.Count + $mechtoken_length2.Count + $innercontexttoken_length.Count +
+                $innercontexttoken_length2.Count + $spnego_length.Count + 25
+            $key_size = [System.BitConverter]::GetBytes($grouped_length + 3)[1,0]
+            $RD_length = [System.BitConverter]::GetBytes($grouped_length + $key_size.Count + 27)[1,0]
+            $inception = [int64](([datetime]::UtcNow)-(Get-Date "1/1/1970")).TotalSeconds
+            $inception = [System.BitConverter]::GetBytes($inception)
+            $inception = $inception[3..0]
+        }
 
-        return $packet_DNSQueryTKEY
+        if($APReq)
+        {
+            [Byte[]]$length = [System.BitConverter]::GetBytes($grouped_length + $Name.Count + 57)[1,0]
+        }
+        else
+        {
+            [Byte[]]$length = [System.BitConverter]::GetBytes($Name.Count + 16)[1,0]
+        }
+
+        $DNSQueryTKEY = New-Object System.Collections.Specialized.OrderedDictionary
+        $DNSQueryTKEY.Add("Length",$length)
+        $DNSQueryTKEY.Add("TransactionID",$transaction_ID)
+        $DNSQueryTKEY.Add("Flags",[Byte[]](0x00,0x00))
+        $DNSQueryTKEY.Add("Questions",[Byte[]](0x00,0x01))
+        $DNSQueryTKEY.Add("AnswerRRs",[Byte[]](0x00,0x00))
+        $DNSQueryTKEY.Add("AuthorityRRs",[Byte[]](0x00,0x00))
+
+        if($apreq)
+        {
+            $DNSQueryTKEY.Add("AdditionalRRs",[Byte[]](0x00,0x01))
+        }
+        else
+        {
+            $DNSQueryTKEY.Add("AdditionalRRs",[Byte[]](0x00,0x00))
+        }
+
+        $DNSQueryTKEY.Add("Queries_Name",$Name)
+        $DNSQueryTKEY.Add("Queries_Type",$Type)
+        $DNSQueryTKEY.Add("Queries_Class",[Byte[]](0x00,0xff))
+
+        if($apreq)
+        {
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_Name",[Byte[]](0xc0,0x0c))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_Type",[Byte[]](0x00,0xf9))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_Class",[Byte[]](0x00,0xff))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_TTL",[Byte[]](0x00,0x00,0x00,0x00))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RDLength",$RD_length)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_Algorithm",[Byte[]](0x08,0x67,0x73,0x73,0x2d,0x74,0x73,0x69,0x67,0x00))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_Inception",$inception)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_Expiration",$inception)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_Mode",[Byte[]](0x00,0x03))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_Error",[Byte[]](0x00,0x00))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_KeySize",$key_size)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_SPNego_Encoding",[Byte[]](0x60) + $spnego_length)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_SPNego_ThisMech",[Byte[]](0x06,0x06,0x2b,0x06,0x01,0x05,0x05,0x02))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_SPNego_InnerContextToken_Encoding",[Byte[]](0xa0) + $innercontexttoken_length2 + [Byte[]](0x30) +
+                $innercontexttoken_length)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechTypes_Encoding",[Byte[]](0xa0,0x0d,0x30,0x0b))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechType0",[Byte[]](0x06,0x09,0x2a,0x86,0x48,0x86,0xf7,0x12,0x01,0x02,0x02))
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechToken_Encoding",[Byte[]](0xa2) + $mechtoken_length2 + [Byte[]](0x04) +
+                $mechtoken_length)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_SPNego_InnerContextToken_MechToken_Token",$APReq)
+            $DNSQueryTKEY.Add("Queries_AdditionalRecords_RData_OtherSize",[Byte[]](0x00,0x00))
+        }
+
+        return $DNSQueryTKEY
     }
     
-    function New-PacketDNSUpdateTSIG
+    function New-PacketDNSUpdate
     {
-        param([Byte[]]$transaction_ID,[String]$zone,[String]$name,[String]$type,[Int]$TTL,[Int]$preference,[Int]$priority,[Int]$weight,[Int]$port,[String]$data,[Byte[]]$time_signed,[Byte[]]$tkey_name,[Byte[]]$MAC)
+        param([Byte[]]$TransactionID,[String]$Zone,[String]$Name,[String]$Type,[Int]$TTL,[Int]$Preference,[Int]$Priority,[Int]$Weight,[Int]$Port,[String]$Data,[Byte[]]$TimeSigned,[Byte[]]$TKeyname,[Byte[]]$MAC)
 
-        if($data)
+        if($Data)
         {
             $add = $true
             [Byte[]]$class = 0x00,0x01
@@ -840,20 +955,20 @@ function Invoke-DNSUpdate
             $TTL = 0
         }
 
-        switch ($type) 
+        switch ($Type) 
         {
 
             'A'
             {
                 [Byte[]]$type = 0x00,0x01
                 
-                if($data -and [Bool]($data -as [System.Net.IPAddress]))
+                if($Data -and [Bool]($Data -as [System.Net.IPAddress]))
                 {
-                    [Byte[]]$data = ([System.Net.IPAddress][String]([System.Net.IPAddress]$data)).GetAddressBytes()
+                    [Byte[]]$data = ([System.Net.IPAddress][String]([System.Net.IPAddress]$Data)).GetAddressBytes()
                 }
-                elseif($data)
+                elseif($Data)
                 {
-                    [Byte[]]$data = [System.Text.Encoding]::UTF8.GetBytes($data)
+                    [Byte[]]$data = [System.Text.Encoding]::UTF8.GetBytes($Data)
                 }
 
             }
@@ -862,13 +977,13 @@ function Invoke-DNSUpdate
             {
                 [Byte[]]$type = 0x00,0x1c
                 
-                if($data -and [Bool]($data -as [System.Net.IPAddress]))
+                if($Data -and [Bool]($Data -as [System.Net.IPAddress]))
                 {
-                    [Byte[]]$data = ([System.Net.IPAddress][String]([System.Net.IPAddress]$data)).GetAddressBytes()
+                    [Byte[]]$data = ([System.Net.IPAddress][String]([System.Net.IPAddress]$Data)).GetAddressBytes()
                 }
-                elseif($data)
+                elseif($Data)
                 {
-                    [Byte[]]$data = [System.Text.Encoding]::UTF8.GetBytes($data)
+                    [Byte[]]$data = [System.Text.Encoding]::UTF8.GetBytes($Data)
                 }
 
             }
@@ -877,13 +992,13 @@ function Invoke-DNSUpdate
             {
                 [Byte[]]$type = 0x00,0x05
 
-                if($data -and [Bool]($data -as [System.Net.IPAddress]))
+                if($Data -and [Bool]($Data -as [System.Net.IPAddress]))
                 {
-                    [Byte[]]$data = (New-DNSNameArray $data) + 0x00
+                    [Byte[]]$data = (New-DNSNameArray $Data) + 0x00
                 }
-                elseif($data)
+                elseif($Data)
                 {
-                    [Byte[]]$data = (New-DNSNameArray ($data -replace ('.' + $zone),'')) + 0xc0,0x0c
+                    [Byte[]]$data = (New-DNSNameArray ($Data -replace ('.' + $Zone),'')) + 0xc0,0x0c
                 }
 
             }
@@ -893,19 +1008,19 @@ function Invoke-DNSUpdate
                 $MX = $true
                 [Byte[]]$type = 0x00,0x0f
 
-                if($data)
+                if($Data)
                 {
                     $extra_length = 2
-                    [Byte[]]$preference = [System.Bitconverter]::GetBytes($preference)[1,0]
+                    [Byte[]]$preference = [System.Bitconverter]::GetBytes($Preference)[1,0]
                 }
 
-                if($data -and [Bool]($data -as [System.Net.IPAddress]))
+                if($Data -and [Bool]($Data -as [System.Net.IPAddress]))
                 {
-                    [Byte[]]$data = (New-DNSNameArray $data) + 0x00
+                    [Byte[]]$data = (New-DNSNameArray $Data) + 0x00
                 }
-                elseif($data)
+                elseif($Data)
                 {
-                    [Byte[]]$data = (New-DNSNameArray ($data -replace ('.' + $zone),'')) + 0xc0,0x0c
+                    [Byte[]]$data = (New-DNSNameArray ($Data -replace ('.' + $Zone),'')) + 0xc0,0x0c
                 }
 
             }
@@ -914,9 +1029,9 @@ function Invoke-DNSUpdate
             {
                 [Byte[]]$type = 0x00,0x0c
 
-                if($data)
+                if($Data)
                 {
-                    [Byte[]]$data = (New-DNSNameArray $data) + 0x00
+                    [Byte[]]$data = (New-DNSNameArray $Data) + 0x00
                 }
 
             }
@@ -926,13 +1041,13 @@ function Invoke-DNSUpdate
                 $SRV = $true
                 [Byte[]]$type = 0x00,0x21
                 
-                if($data)
+                if($Data)
                 {
-                    [Byte[]]$priority = [System.Bitconverter]::GetBytes($priority)[1,0]
-                    [Byte[]]$weight = [System.Bitconverter]::GetBytes($weight)[1,0]
-                    [Byte[]]$port = [System.Bitconverter]::GetBytes($port)[1,0]
+                    [Byte[]]$priority = [System.Bitconverter]::GetBytes($Priority)[1,0]
+                    [Byte[]]$weight = [System.Bitconverter]::GetBytes($Weight)[1,0]
+                    [Byte[]]$port = [System.Bitconverter]::GetBytes($Port)[1,0]
                     $extra_length = 6
-                    [Byte[]]$data = (New-DNSNameArray $data) + 0x00
+                    [Byte[]]$data = (New-DNSNameArray $Data) + 0x00
                 }
 
             }
@@ -941,309 +1056,215 @@ function Invoke-DNSUpdate
             {
                 $TXT = $true
                 [Byte[]]$type = 0x00,0x10
-                [Byte[]]$TXT_length = [System.BitConverter]::GetBytes($data.Length)[0]
+                [Byte[]]$TXT_length = [System.BitConverter]::GetBytes($Data.Length)[0]
 
-                if($data)
+                if($Data)
                 {
                     $extra_length = 1
-                    [Byte[]]$data = [System.Text.Encoding]::UTF8.GetBytes($data)
+                    [Byte[]]$data = [System.Text.Encoding]::UTF8.GetBytes($Data)
                 }
 
             }
 
         }
 
-        if($MX)
+        if($Name -eq $Zone)
         {
             [Byte[]]$name = 0xc0,0x0c
         }
         else
         {
-            [Byte[]]$name = (New-DNSNameArray ($name -replace ('.' + $zone),'')) + 0xc0,0x0c
+            [Byte[]]$name = (New-DNSNameArray ($Name -replace ('.' + $Zone),'')) + 0xc0,0x0c
         }
         
-        [Byte[]]$zone = (New-DNSNameArray $zone) + 0x00  
+        [Byte[]]$Zone = (New-DNSNameArray $Zone) + 0x00  
         [Byte[]]$TTL = [System.Bitconverter]::GetBytes($TTL)[3..0]
         [Byte[]]$data_length = [System.BitConverter]::GetBytes($data.Length + $extra_length)[1,0]
-        [Byte[]]$length = [System.BitConverter]::GetBytes($zone.Count + $name.Count + $data.Length + $tkey_name.Count + $MAC.Count + 62 + $extra_length)[1,0]
-
-        $packet_DNSUpdateTSIG = New-Object System.Collections.Specialized.OrderedDictionary
 
         if($MAC)
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Length",$length)
+            [Byte[]]$length = [System.BitConverter]::GetBytes($Zone.Count + $name.Count + $data.Length + $TKeyname.Count + $MAC.Count + 62 + $extra_length)[1,0]
+        }
+        elseif(!$TKeyname)
+        {
+            [Byte[]]$length = [System.BitConverter]::GetBytes($Zone.Count + $name.Count + $data.Length + 26 + $extra_length)[1,0]
         }
 
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_TransactionID",$transaction_ID)
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Flags",[Byte[]](0x28,0x00))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Zones",[Byte[]](0x00,0x01))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Prerequisites",[Byte[]](0x00,0x00))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates",[Byte[]](0x00,0x01))
+        $DNSUpdate = New-Object System.Collections.Specialized.OrderedDictionary
+
+        if(!$TKeyname -or $MAC)
+        {
+            $DNSUpdate.Add("Length",$length)
+        }
+
+        $DNSUpdate.Add("TransactionID",$TransactionID)
+        $DNSUpdate.Add("Flags",[Byte[]](0x28,0x00))
+        $DNSUpdate.Add("Zones",[Byte[]](0x00,0x01))
+        $DNSUpdate.Add("Prerequisites",[Byte[]](0x00,0x00))
+        $DNSUpdate.Add("Updates",[Byte[]](0x00,0x01))
 
         if($MAC)
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRRs",[Byte[]](0x00,0x01))
+            $DNSUpdate.Add("AdditionalRRs",[Byte[]](0x00,0x01))
         }
         else
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditiionalRRs",[Byte[]](0x00,0x00))
+            $DNSUpdate.Add("AdditiionalRRs",[Byte[]](0x00,0x00))
         }
 
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Zone_Name",$zone)
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Zone_Type",[Byte[]](0x00,0x06))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Zone_Class",[Byte[]](0x00,0x01))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_Name",$name)
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_Type",$type)
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_Class",$class)
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_TTL",$TTL)
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_DataLength",$data_length)
+        $DNSUpdate.Add("Zone_Name",$Zone)
+        $DNSUpdate.Add("Zone_Type",[Byte[]](0x00,0x06))
+        $DNSUpdate.Add("Zone_Class",[Byte[]](0x00,0x01))
+        $DNSUpdate.Add("Updates_Name",$name)
+        $DNSUpdate.Add("Updates_Type",$type)
+        $DNSUpdate.Add("Updates_Class",$class)
+        $DNSUpdate.Add("Updates_TTL",$TTL)
+        $DNSUpdate.Add("Updates_DataLength",$data_length)
 
         if($MX)
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_TXTLength",$preference)
+            $DNSUpdate.Add("Updates_TXTLength",$preference)
         }
 
         if($TXT -and $add)
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_TXTLength",$TXT_length)
+            $DNSUpdate.Add("Updates_TXTLength",$TXT_length)
         }
 
         if($SRV -and $add)
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_Priority",$priority)
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_Weight",$weight)
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_Port",$port)
+            $DNSUpdate.Add("Updates_Priority",$priority)
+            $DNSUpdate.Add("Updates_Weight",$weight)
+            $DNSUpdate.Add("Updates_Port",$port)
         }
 
         if($add)
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_Updates_Address",$data)
+            $DNSUpdate.Add("Updates_Address",$data)
         }
 
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_Name",$tkey_name)
-
-        if($MAC)
+        if($TKeyname)
         {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_Type",[Byte[]](0x00,0xfa))
+            $DNSUpdate.Add("AdditionalRecords_Name",$TKeyname)
+
+            if($MAC)
+            {
+                $DNSUpdate.Add("AdditionalRecords_Type",[Byte[]](0x00,0xfa))
+            }
+
+            $DNSUpdate.Add("AdditionalRecords_Class",[Byte[]](0x00,0xff))
+            $DNSUpdate.Add("AdditionalRecords_TTL",[Byte[]](0x00,0x00,0x00,0x00))
+
+            if($MAC)
+            {
+                $DNSUpdate.Add("AdditionalRecords_DataLength",[Byte[]](0x00,0x36))
+            }
+
+            $DNSUpdate.Add("AdditionalRecords_AlgorithmName",[Byte[]](0x08,0x67,0x73,0x73,0x2d,0x74,0x73,0x69,0x67,0x00))
+            $DNSUpdate.Add("AdditionalRecords_TimeSigned",$TimeSigned)
+            $DNSUpdate.Add("AdditionalRecords_Fudge",[Byte[]](0x01,0x2c))
+
+            if($MAC)
+            {
+                $DNSUpdate.Add("AdditionalRecords_MACSize",[Byte[]](0x00,0x1c))
+                $DNSUpdate.Add("AdditionalRecords_MAC",$MAC)
+                $DNSUpdate.Add("AdditionalRecords_OriginalID",$TransactionID)
+            }
+
+            $DNSUpdate.Add("AdditionalRecords_Error",[Byte[]](0x00,0x00))
+            $DNSUpdate.Add("AdditionalRecords_OtherLength",[Byte[]](0x00,0x00))
         }
 
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_Class",[Byte[]](0x00,0xff))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_TTL",[Byte[]](0x00,0x00,0x00,0x00))
-
-        if($MAC)
-        {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_DataLength",[Byte[]](0x00,0x36))
-        }
-
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_AlgorithmName",[Byte[]](0x08,0x67,0x73,0x73,0x2d,0x74,0x73,0x69,0x67,0x00))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_TimeSigned",$time_signed)
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_Fudge",[Byte[]](0x01,0x2c))
-
-        if($MAC)
-        {
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_MACSize",[Byte[]](0x00,0x1c))
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_MAC",$MAC)
-            $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_OriginalID",$transaction_ID)
-        }
-
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_Error",[Byte[]](0x00,0x00))
-        $packet_DNSUpdateTSIG.Add("DNSUpdateTSIG_AdditionalRecords_OtherLength",[Byte[]](0x00,0x00))
-
-        return $packet_DNSUpdateTSIG
+        return $DNSUpdate
     }
     
     function New-PacketDNSUpdateMAC
     {
-        param([Byte[]]$flags,[Byte[]]$sequence_number,[Byte[]]$checksum)
+        param([Byte[]]$Flags,[Byte[]]$SequenceNumber,[Byte[]]$Checksum)
 
-        $packet_DNSUpdateMAC = New-Object System.Collections.Specialized.OrderedDictionary
-        $packet_DNSUpdateMAC.Add("DNSUpdateMAC_TokenID",[Byte[]](0x04,0x04))
-        $packet_DNSUpdateMAC.Add("DNSUpdateMAC_Flags",$flags)
-        $packet_DNSUpdateMAC.Add("DNSUpdateMAC_Filler",[Byte[]](0xff,0xff,0xff,0xff,0xff))
-        $packet_DNSUpdateMAC.Add("DNSUpdateMAC_SequenceNumber",[Byte[]](0x00,0x00,0x00,0x00) + $sequence_number)
+        $DNSUpdateMAC = New-Object System.Collections.Specialized.OrderedDictionary
+        $DNSUpdateMAC.Add("DNSUpdateMAC_TokenID",[Byte[]](0x04,0x04))
+        $DNSUpdateMAC.Add("DNSUpdateMAC_Flags",$Flags)
+        $DNSUpdateMAC.Add("DNSUpdateMAC_Filler",[Byte[]](0xff,0xff,0xff,0xff,0xff))
+        $DNSUpdateMAC.Add("DNSUpdateMAC_SequenceNumber",[Byte[]](0x00,0x00,0x00,0x00) + $SequenceNumber)
 
-        if($checksum)
+        if($Checksum)
         {
-            $packet_DNSUpdateMAC.Add("DNSUpdateMAC_Checksum",$checksum)
+            $DNSUpdateMAC.Add("DNSUpdateMAC_Checksum",$Checksum)
         }
 
-        return $packet_DNSUpdateMAC
+        return $DNSUpdateMAC
     }
 
-    $tkey = "6" + ((0..9) | Get-Random -Count 2) + "-ms-7.1-" + ((0..9) | Get-Random -Count 4) + "." + ((0..9) | Get-Random -Count 8) +
-        "-" + ((0..9) | Get-Random -Count 4) + "-11e7-" + ((0..9) | Get-Random -Count 4) + "-000c296694e0"
-    $tkey = $tkey -replace " ",""
-    Write-Verbose "[+] TKEY name $tkey"
-    [Byte[]]$tkey_name = [System.Text.Encoding]::UTF8.GetBytes($tkey)
-    $tkey_name = [Byte[]]0x08 + $tkey_name + 0x00
-    $tkey_name[9] = 0x06
-    $tkey_name[16] = 0x24
-
-    if($kerberos_tcpclient)
+    function Get-DNSUpdateResponseStatus
     {
-        $kerberos_client = New-Object System.Net.Sockets.TCPClient
-        $kerberos_client.Client.ReceiveTimeout = 3000
-        $domain_controller = [System.Text.Encoding]::UTF8.GetBytes($DomainController)
-        $kerberos_username = [System.Text.Encoding]::UTF8.GetBytes($Username)
-        $kerberos_realm = [System.Text.Encoding]::UTF8.GetBytes($Realm)
+        param([Byte[]]$DNSClientReceive)
+
+        $DNS_response_flags = [System.BitConverter]::ToString($DNSClientReceive[4..5])
+        $DNS_response_flags = $DNS_response_flags -replace "-",""
+
+        switch ($DNS_response_flags)
+        {
+            'A800' {$DNS_update_response_status = "[+] DNS update successful"}
+            'A801' {$DNS_update_response_status = ("[-] format error 0x" + $DNS_response_flags)}
+            'A802' {$DNS_update_response_status = ("[-] failed to complete 0x" + $DNS_response_flags)}
+            'A804' {$DNS_update_response_status = ("[-] not implemented 0x" + $DNS_response_flags)}
+            'A805' {$DNS_update_response_status = ("[-] update refused 0x" + $DNS_response_flags)}
+            Default {$DNS_update_response_status = ("[-] DNS update was not successful 0x" + $DNS_response_flags)}
+        }
+
+        return $DNS_update_response_status
+    }
+
+    if($RecordCheck)
+    {
+
+        if($DNSType -ne 'MX' -and $DNSName -notlike '*.*')
+        {
+            $query_name = $DNSName + "." + $Zone
+        }
+        else
+        {
+            $query_name = $DNSName    
+        }
+
+        $DNS_client = New-Object System.Net.Sockets.TCPClient
+        $DNS_client.Client.ReceiveTimeout = 3000
 
         try
         {
-            $kerberos_client.Connect($DomainController,"88")
+            $DNS_client.Connect($DomainController,"53")
+            $DNS_client_stream = $DNS_client.GetStream()
+            $DNS_client_receive = New-Object System.Byte[] 2048
+            $packet_DNSQuery = New-PacketDNSQuery $query_name $DNSType
+            [Byte[]]$DNS_client_send = ConvertFrom-PacketOrderedDictionary $packet_DNSQuery
+            $DNS_client_stream.Write($DNS_client_send,0,$DNS_client_send.Length) > $null
+            $DNS_client_stream.Flush()   
+            $DNS_client_stream.Read($DNS_client_receive,0,$DNS_client_receive.Length) > $null
+            $DNS_client.Close()
+            $DNS_client_stream.Close()
+
+            if($DNS_client_receive[9] -ne 0)
+            {
+                $DNS_record_exists = $true
+                Write-Output "[-] $DNSName of record type $DNSType already exists"
+            }
+
         }
         catch
         {
-            Write-Output "$DomainController did not respond on TCP port 88"
+            Write-Output "[-] $DomainController did not respond on TCP port 53"
         }
 
     }
 
-    if(!$kerberos_tcpclient -or $kerberos_client.Connected)
+    if(!$RecordCheck -or ($RecordCheck -and !$DNS_record_exists))
     {
+        $DNS_client = New-Object System.Net.Sockets.TCPClient
+        $DNS_client.Client.ReceiveTimeout = 3000
 
-        if($kerberos_tcpclient)
+        if($Security -ne 'Secure')
         {
-
-            if($Hash)
-            {
-                $base_key = (&{for ($i = 0;$i -lt $hash.Length;$i += 2){$hash.SubString($i,2)}}) -join "-"
-                $base_key = $base_key.Split("-") | ForEach-Object{[Char][System.Convert]::ToInt16($_,16)}
-            }
-            else
-            {
-                $base_key = Get-KerberosAES256BaseKey $salt $password
-            }
-
-            $ke_key = Get-KerberosAES256UsageKey encrypt 1 $base_key
-            $ki_key = Get-KerberosAES256UsageKey integrity 1 $base_key
-            $nonce = New-RandomByteArray 4        
-            $kerberos_client_stream = $kerberos_client.GetStream()
-            $kerberos_client_receive = New-Object System.Byte[] 2048
-            $packet_AS_REQ = New-PacketKerberosASREQ $kerberos_username $kerberos_realm $domain_controller $nonce
-            $AS_REQ = ConvertFrom-PacketOrderedDictionary $packet_AS_REQ
-            $kerberos_client_send = $AS_REQ
-            $kerberos_client_stream.Write($kerberos_client_send,0,$kerberos_client_send.Length) > $null
-            $kerberos_client_stream.Flush()
-            $kerberos_client_stream.Read($kerberos_client_receive,0,$kerberos_client_receive.Length) > $null
-            [Byte[]]$PAC_Timestamp = New-KerberosPACTimestamp $ke_key
-            [Byte[]]$PAC_ENC_Timestamp = Protect-KerberosAES256CTS $ke_key $PAC_Timestamp
-            [Byte[]]$PAC_Timestamp_Signature = Get-KerberosHMACSHA1 $ki_key $PAC_Timestamp
-            $packet_AS_REQ = New-PacketKerberosASREQ $kerberos_username $kerberos_realm $domain_controller $nonce $PAC_ENC_Timestamp $PAC_Timestamp_Signature
-            $AS_REQ = ConvertFrom-PacketOrderedDictionary $packet_AS_REQ
-            $kerberos_client_send = $AS_REQ
-            $kerberos_client_stream.Write($kerberos_client_send,0,$kerberos_client_send.Length) > $null
-            $kerberos_client_stream.Flush()   
-            $kerberos_client_stream.Read($kerberos_client_receive,0,$kerberos_client_receive.Length) > $null
-            $asrep_payload = [System.BitConverter]::ToString($kerberos_client_receive)
-            $asrep_payload = $asrep_payload -replace "-",""
-            $kerberos_client.Close()
-            $kerberos_client_stream.Close()
-        }
-        else
-        {
-            
-            try
-            {
-
-                $Null = [System.Reflection.Assembly]::LoadWithPartialName("System.IdentityModel")
-
-                if($username)
-                {
-                    $creds = New-Object System.Management.Automation.PSCredential ($username,$Password)
-                    $network_creds = $creds.GetNetworkCredential()
-                    $network_creds.Domain = $domain
-                    $token = New-Object  System.IdentityModel.Selectors.KerberosSecurityTokenProvider ("DNS/$DomainController",[System.Security.Principal.TokenImpersonationLevel]::Impersonation,$network_creds)
-                    $ticket = $token.GetToken([System.TimeSpan]::FromMinutes(1))
-                }
-                else
-                {
-                    $ticket = New-Object  System.IdentityModel.Tokens.KerberosRequestorSecurityToken ("DNS/$DomainController")
-                }
-
-                $asrep_key = $ticket.SecurityKey.GetSymmetricKey()
-                $kerberos_client_receive = $Ticket.GetRequest()
-                $asrep_payload = [System.BitConverter]::ToString($kerberos_client_receive)
-                $asrep_payload = $asrep_payload -replace "-",""
-            }
-            catch
-            {
-                $auth_success = $false
-            }
-
-        }
-
-        if($asrep_key -or ($asrep_payload.Length -gt 0 -and $asrep_payload -like '*A003020105A10302010B*'))
-        {
-            Write-Verbose "[+] Kerberos preauthentication successful"
-            $auth_success = $true  
-        }
-        elseif($asrep_payload.Length -gt 0 -and $asrep_payload -like '*A003020105A10302011E*')
-        {
-            Write-Output ("[-] Kerberos preauthentication error 0x" + $asrep_payload.Substring(96,2))
-            $auth_success = $false
-        }
-        else
-        {
-            Write-Output "[-] Kerberos authentication failure"
-            $auth_success = $false
-        }
-
-        if($auth_success)
-        {
-            $ticket_index = $asrep_payload.IndexOf("A003020112A1030201")
-            $ticket_kvno = $kerberos_client_receive[($ticket_index / 2 + 9)]
-            
-            if($asrep_payload.Substring($ticket_index + 22,2) -eq '82')
-            {
-                $ticket_length = ([System.BitConverter]::ToUInt16($kerberos_client_receive[($ticket_index / 2 + 13)..($ticket_index / 2 + 12)],0)) - 4
-            }
-            else
-            {
-                $ticket_length = $kerberos_client_receive[($ticket_index / 2 + 12)] - 3
-            }
-
-            $ticket = $Kerberos_client_receive[($ticket_index / 2 + 18)..($ticket_index/2 + 17 + $ticket_length)]
-
-            if($kerberos_tcpclient)
-            {
-                $cipher_index = $asrep_payload.Substring($ticket_index + 1).IndexOf("A003020112A1030201") + $ticket_index + 1
-
-                if($asrep_payload.Substring($cipher_index + 22,2) -eq '82')
-                {
-                    $cipher_length = ([System.BitConverter]::ToUInt16($kerberos_client_receive[($cipher_index / 2 + 13)..($cipher_index / 2 + 12)],0)) - 4
-                }
-                else
-                {
-                    $cipher_length = $kerberos_client_receive[($cipher_length / 2 + 12)] - 3
-                }
-
-                $cipher = $kerberos_client_receive[($cipher_index / 2 + 18)..($cipher_index / 2 + 17 + $cipher_length)]
-                $ke_key = Get-KerberosAES256UsageKey encrypt 3 $base_key
-                $asrep_cleartext = Unprotect-KerberosASREP $ke_key $cipher[0..($cipher.Count - 13)]
-                $kerberos_session_key = $asrep_cleartext[37..68]
-                $ke_key = Get-KerberosAES256UsageKey encrypt 11 $kerberos_session_key
-                $ki_key = Get-KerberosAES256UsageKey integrity 11 $kerberos_session_key
-                [Byte[]]$subkey = New-RandomByteArray 32
-                [Byte[]]$sequence_number = New-RandomByteArray 4
-                $packet_authenticator = New-KerberosAuthenticator $kerberos_realm $kerberos_username $subkey $sequence_number
-                [Byte[]]$authenticator = ConvertFrom-PacketOrderedDictionary $packet_authenticator
-                $authenticator = (New-RandomByteArray 16) + $authenticator
-                $authenticator_encrypted = Protect-KerberosAES256CTS $ke_key $authenticator
-                $authenticator_signature = Get-KerberosHMACSHA1 $ki_key $authenticator
-                $packet_apreq = New-PacketKerberosAPREQ $kerberos_realm $domain_controller $ticket_kvno $ticket $authenticator_encrypted $authenticator_signature
-                [Byte[]]$apreq = ConvertFrom-PacketOrderedDictionary $packet_apreq
-                [Byte[]]$mac_flags = 0x04
-            }
-            else
-            {
-                [Byte[]]$apreq = $kerberos_client_receive
-                [Byte[]]$mac_flags = 0x00
-            }
-                
-            $packet_DNSQueryTKEY = New-PacketDNSQueryTKEY $tkey_name $apreq
-            $DNSQueryTKEY = ConvertFrom-PacketOrderedDictionary $packet_DNSQueryTKEY
-            $DNS_client = New-Object System.Net.Sockets.TCPClient
-            $DNS_client.Client.ReceiveTimeout = 3000
 
             try
             {
@@ -1258,77 +1279,280 @@ function Invoke-DNSUpdate
             {
                 $DNS_client_stream = $DNS_client.GetStream()
                 $DNS_client_receive = New-Object System.Byte[] 2048
-                $DNS_client_send = $DNSQueryTKEY
+                [Byte[]]$transaction_id = New-RandomByteArray 2
+                $packet_DNSUpdate = New-PacketDNSUpdate $transaction_ID $Zone $DNSName $DNSType $DNSTTL $DNSPreference $DNSPriority $DNSWeight $DNSPort $DNSData
+                [Byte[]]$DNSUpdate = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdate
+                $DNS_client_send = $DNSUpdate
                 $DNS_client_stream.Write($DNS_client_send,0,$DNS_client_send.Length) > $null
                 $DNS_client_stream.Flush()   
                 $DNS_client_stream.Read($DNS_client_receive,0,$DNS_client_receive.Length) > $null
-                $tkey_payload = [System.BitConverter]::ToString($DNS_client_receive)
-                $tkey_payload = $tkey_payload -replace "-",""
-                
-                if($tkey_payload.Substring(8,4) -eq '8000')
+                $DNS_update_response_status = Get-DNSUpdateResponseStatus $DNS_client_receive
+                Write-Output $DNS_update_response_status
+                $DNS_client.Close()
+                $DNS_client_stream.Close()
+            }
+
+        }
+
+        if($Security -eq 'Secure' -or ($Security -eq 'Auto' -and $DNS_update_response_status -like '*0xA805'))
+        {
+            $tkey = "6" + ((0..9) | Get-Random -Count 2) + "-ms-7.1-" + ((0..9) | Get-Random -Count 4) + "." + ((0..9) | Get-Random -Count 8) +
+                "-" + ((0..9) | Get-Random -Count 4) + "-11e7-" + ((0..9) | Get-Random -Count 4) + "-000c296694e0"
+            $tkey = $tkey -replace " ",""
+            Write-Verbose "[+] TKEY name $tkey"
+            [Byte[]]$tkey_name = [System.Text.Encoding]::UTF8.GetBytes($tkey)
+            $tkey_name = [Byte[]]0x08 + $tkey_name + 0x00
+            $tkey_name[9] = 0x06
+            $tkey_name[16] = 0x24
+
+            if($kerberos_tcpclient)
+            {
+                $kerberos_client = New-Object System.Net.Sockets.TCPClient
+                $kerberos_client.Client.ReceiveTimeout = 3000
+                $domain_controller = [System.Text.Encoding]::UTF8.GetBytes($DomainController)
+                $kerberos_username = [System.Text.Encoding]::UTF8.GetBytes($Username)
+                $kerberos_realm = [System.Text.Encoding]::UTF8.GetBytes($Realm)
+
+                try
                 {
-                    Write-Verbose "[+] Kerberos TKEY query successful"
-                    $TKEY_success = $true         
+                    $kerberos_client.Connect($DomainController,"88")
                 }
-                else
+                catch
                 {
-                    Write-Output ("[-] Kerberos TKEY query error 0x" + $tkey_payload.Substring(8,4))
-                    $TKEY_success = $false
+                    Write-Output "$DomainController did not respond on TCP port 88"
                 }
 
-                if($TKEY_success)
+            }
+
+            if(!$kerberos_tcpclient -or $kerberos_client.Connected)
+            {
+
+                if($kerberos_tcpclient)
                 {
 
-                    if($kerberos_tcpclient)
+                    if($Hash)
                     {
-                        $cipher_index = $tkey_payload.IndexOf("A003020112A2")
-                        $cipher_length = $DNS_client_receive[($cipher_index / 2 + 8)]
-                        $cipher = $DNS_client_receive[($cipher_index / 2 + 9)..($cipher_index / 2 + 8 + $cipher_length)]
-                        $ke_key = Get-KerberosAES256UsageKey encrypt 12 $kerberos_session_key
-                        $tkey_cleartext = Unprotect-KerberosASREP $ke_key $cipher[0..($cipher.Count - 13)]
-                        $acceptor_subkey = $tkey_cleartext[59..90]
+                        $base_key = (&{for ($i = 0;$i -lt $hash.Length;$i += 2){$hash.SubString($i,2)}}) -join "-"
+                        $base_key = $base_key.Split("-") | ForEach-Object{[Char][System.Convert]::ToInt16($_,16)}
                     }
                     else
                     {
-                        $sequence_index = $tkey_payload.IndexOf("FFFFFFFFFF00000000")
-                        $sequence_number = $DNS_client_receive[($sequence_index / 2 + 9)..($sequence_index / 2 + 12)]
-                        $acceptor_subkey = $asrep_key
+                        $base_key = Get-KerberosAES256BaseKey $salt $password
                     }
 
-                    $kc_key = Get-KerberosAES256UsageKey checksum 25 $acceptor_subkey
-                    $time_signed = [Int](([DateTime]::UtcNow)-(Get-Date "1/1/1970")).TotalSeconds
-                    $time_signed = [System.BitConverter]::GetBytes($time_signed)
-                    $time_signed = 0x00,0x00 + $time_signed[3..0]
-                    [Byte[]]$transaction_id = New-RandomByteArray 2
-                    $packet_DNSUpdateTSIG = New-PacketDNSUpdateTSIG $transaction_ID $DNSZone $DNSName $DNSType $DNSTTL $DNSPreference $DNSPriority $DNSWeight $DNSPort $DNSData $time_signed $tkey_name
-                    [Byte[]]$DNSUpdateTSIG = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdateTSIG
-                    $packet_DNSUpdateMAC = New-PacketDNSUpdateMAC $mac_flags $sequence_number
-                    [Byte[]]$DNSUpdateMAC = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdateMAC
-                    $DNSUpdateTSIG += $DNSUpdateMAC
-                    $checksum = Get-KerberosHMACSHA1 $kc_key $DNSUpdateTSIG
-                    $packet_DNSUpdateMAC = New-PacketDNSUpdateMAC $mac_flags $sequence_number $checksum
-                    [Byte[]]$DNSUpdateMAC = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdateMAC
-                    $packet_DNSUpdateTSIG = New-PacketDNSUpdateTSIG $transaction_ID $DNSZone $DNSName $DNSType $DNSTTL $DNSPreference $DNSPriority $DNSWeight $DNSPort $DNSData $time_signed $tkey_name $DNSUpdateMAC
-                    [Byte[]]$DNSUpdateTSIG = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdateTSIG
-                    $DNS_client_send = $DNSUpdateTSIG
-                    $DNS_client_stream.Write($DNS_client_send,0,$DNS_client_send.Length) > $null
-                    $DNS_client_stream.Flush()   
-                    $DNS_client_stream.Read($DNS_client_receive,0,$DNS_client_receive.Length) > $null
-                    $DNS_response_flags = [System.BitConverter]::ToString($DNS_client_receive[4..5])
-                    $DNS_response_flags = $DNS_response_flags -replace "-",""
-
-                    switch ($DNS_response_flags)
+                    $ke_key = Get-KerberosAES256UsageKey encrypt 1 $base_key
+                    $ki_key = Get-KerberosAES256UsageKey integrity 1 $base_key
+                    $nonce = New-RandomByteArray 4        
+                    $kerberos_client_stream = $kerberos_client.GetStream()
+                    $kerberos_client_receive = New-Object System.Byte[] 2048
+                    $packet_AS_REQ = New-PacketKerberosASREQ $kerberos_username $kerberos_realm $domain_controller $nonce
+                    $AS_REQ = ConvertFrom-PacketOrderedDictionary $packet_AS_REQ
+                    $kerberos_client_send = $AS_REQ
+                    $kerberos_client_stream.Write($kerberos_client_send,0,$kerberos_client_send.Length) > $null
+                    $kerberos_client_stream.Flush()
+                    $kerberos_client_stream.Read($kerberos_client_receive,0,$kerberos_client_receive.Length) > $null
+                    [Byte[]]$PAC_Timestamp = New-KerberosPACTimestamp $ke_key
+                    [Byte[]]$PAC_ENC_Timestamp = Protect-KerberosAES256CTS $ke_key $PAC_Timestamp
+                    [Byte[]]$PAC_Timestamp_Signature = Get-KerberosHMACSHA1 $ki_key $PAC_Timestamp
+                    $packet_AS_REQ = New-PacketKerberosASREQ $kerberos_username $kerberos_realm $domain_controller $nonce $PAC_ENC_Timestamp $PAC_Timestamp_Signature
+                    $AS_REQ = ConvertFrom-PacketOrderedDictionary $packet_AS_REQ
+                    $kerberos_client_send = $AS_REQ
+                    $kerberos_client_stream.Write($kerberos_client_send,0,$kerberos_client_send.Length) > $null
+                    $kerberos_client_stream.Flush()   
+                    $kerberos_client_stream.Read($kerberos_client_receive,0,$kerberos_client_receive.Length) > $null
+                    $asrep_payload = [System.BitConverter]::ToString($kerberos_client_receive)
+                    $asrep_payload = $asrep_payload -replace "-",""
+                    $kerberos_client.Close()
+                    $kerberos_client_stream.Close()
+                }
+                else
+                {
+                    
+                    try
                     {
-                        'A800' {Write-Output "[+] DNS update successful"}
-                        'A801' {Write-Output ("[-] format error 0x" + $DNS_response_flags)}
-                        'A802' {Write-Output ("[-] failed to complete 0x" + $DNS_response_flags)}
-                        'A804' {Write-Output ("[-] not implemented 0x" + $DNS_response_flags)}
-                        'A805' {Write-Output ("[-] update refused 0x" + $DNS_response_flags)}
-                        Default {Write-Output ("[-] DNS update was not successful 0x" + $DNS_response_flags)}
+
+                        $Null = [System.Reflection.Assembly]::LoadWithPartialName("System.IdentityModel")
+
+                        if($username -or $Credential)
+                        {
+
+                            if(!$Credential)
+                            {
+                                $Credential = New-Object System.Management.Automation.PSCredential ($username,$Password)
+                            }
+
+                            $network_creds = $Credential.GetNetworkCredential()
+                            $network_creds.Domain = $domain
+                            $token = New-Object  System.IdentityModel.Selectors.KerberosSecurityTokenProvider ("DNS/$DomainController",[System.Security.Principal.TokenImpersonationLevel]::Impersonation,$network_creds)
+                            $ticket = $token.GetToken([System.TimeSpan]::FromMinutes(1))
+                        }
+                        else
+                        {
+                            $ticket = New-Object  System.IdentityModel.Tokens.KerberosRequestorSecurityToken ("DNS/$DomainController")
+                        }
+
+                        $asrep_key = $ticket.SecurityKey.GetSymmetricKey()
+                        $kerberos_client_receive = $Ticket.GetRequest()
+                        $asrep_payload = [System.BitConverter]::ToString($kerberos_client_receive)
+                        $asrep_payload = $asrep_payload -replace "-",""
+                    }
+                    catch
+                    {
+                        $auth_success = $false
                     }
 
-                    $DNS_client.Close()
-                    $DNS_client_stream.Close()
+                }
+
+                if($asrep_key -or ($asrep_payload.Length -gt 0 -and $asrep_payload -like '*A003020105A10302010B*'))
+                {
+                    Write-Verbose "[+] Kerberos preauthentication successful"
+                    $auth_success = $true  
+                }
+                elseif($asrep_payload.Length -gt 0 -and $asrep_payload -like '*A003020105A10302011E*')
+                {
+                    Write-Output ("[-] Kerberos preauthentication error 0x" + $asrep_payload.Substring(96,2))
+                    $auth_success = $false
+                }
+                else
+                {
+                    Write-Output "[-] Kerberos authentication failure"
+                    $auth_success = $false
+                }
+
+                if($auth_success)
+                {
+                    $ticket_index = $asrep_payload.IndexOf("A003020112A1030201")
+                    $ticket_kvno = $kerberos_client_receive[($ticket_index / 2 + 9)]
+                    
+                    if($asrep_payload.Substring($ticket_index + 22,2) -eq '82')
+                    {
+                        $ticket_length = ([System.BitConverter]::ToUInt16($kerberos_client_receive[($ticket_index / 2 + 13)..($ticket_index / 2 + 12)],0)) - 4
+                    }
+                    else
+                    {
+                        $ticket_length = $kerberos_client_receive[($ticket_index / 2 + 12)] - 3
+                    }
+
+                    $ticket = $Kerberos_client_receive[($ticket_index / 2 + 18)..($ticket_index/2 + 17 + $ticket_length)]
+
+                    if($kerberos_tcpclient)
+                    {
+                        $cipher_index = $asrep_payload.Substring($ticket_index + 1).IndexOf("A003020112A1030201") + $ticket_index + 1
+
+                        if($asrep_payload.Substring($cipher_index + 22,2) -eq '82')
+                        {
+                            $cipher_length = ([System.BitConverter]::ToUInt16($kerberos_client_receive[($cipher_index / 2 + 13)..($cipher_index / 2 + 12)],0)) - 4
+                        }
+                        else
+                        {
+                            $cipher_length = $kerberos_client_receive[($cipher_length / 2 + 12)] - 3
+                        }
+
+                        $cipher = $kerberos_client_receive[($cipher_index / 2 + 18)..($cipher_index / 2 + 17 + $cipher_length)]
+                        $ke_key = Get-KerberosAES256UsageKey encrypt 3 $base_key
+                        $asrep_cleartext = Unprotect-KerberosASREP $ke_key $cipher[0..($cipher.Count - 13)]
+                        $kerberos_session_key = $asrep_cleartext[37..68]
+                        $ke_key = Get-KerberosAES256UsageKey encrypt 11 $kerberos_session_key
+                        $ki_key = Get-KerberosAES256UsageKey integrity 11 $kerberos_session_key
+                        [Byte[]]$subkey = New-RandomByteArray 32
+                        [Byte[]]$sequence_number = New-RandomByteArray 4
+                        $packet_authenticator = New-KerberosAuthenticator $kerberos_realm $kerberos_username $subkey $sequence_number
+                        [Byte[]]$authenticator = ConvertFrom-PacketOrderedDictionary $packet_authenticator
+                        $authenticator = (New-RandomByteArray 16) + $authenticator
+                        $authenticator_encrypted = Protect-KerberosAES256CTS $ke_key $authenticator
+                        $authenticator_signature = Get-KerberosHMACSHA1 $ki_key $authenticator
+                        $packet_apreq = New-PacketKerberosAPREQ $kerberos_realm $domain_controller $ticket_kvno $ticket $authenticator_encrypted $authenticator_signature
+                        [Byte[]]$apreq = ConvertFrom-PacketOrderedDictionary $packet_apreq
+                        [Byte[]]$mac_flags = 0x04
+                    }
+                    else
+                    {
+                        [Byte[]]$apreq = $kerberos_client_receive
+                        [Byte[]]$mac_flags = 0x00
+                    }
+                        
+                    $packet_DNSQuery = New-PacketDNSQueryTKEY $tkey_name 0x00,0xf9 $apreq
+                    $DNSQueryTKEY = ConvertFrom-PacketOrderedDictionary $packet_DNSQuery
+                    $DNS_client = New-Object System.Net.Sockets.TCPClient
+                    $DNS_client.Client.ReceiveTimeout = 3000
+
+                    try
+                    {
+                        $DNS_client.Connect($DomainController,"53")
+                    }
+                    catch
+                    {
+                        Write-Output "$DomainController did not respond on TCP port 53"
+                    }
+
+                    if($DNS_client.Connected)
+                    {
+                        $DNS_client_stream = $DNS_client.GetStream()
+                        $DNS_client_receive = New-Object System.Byte[] 2048
+                        $DNS_client_send = $DNSQueryTKEY
+                        $DNS_client_stream.Write($DNS_client_send,0,$DNS_client_send.Length) > $null
+                        $DNS_client_stream.Flush()   
+                        $DNS_client_stream.Read($DNS_client_receive,0,$DNS_client_receive.Length) > $null
+                        $tkey_payload = [System.BitConverter]::ToString($DNS_client_receive)
+                        $tkey_payload = $tkey_payload -replace "-",""
+                        
+                        if($tkey_payload.Substring(8,4) -eq '8000')
+                        {
+                            Write-Verbose "[+] Kerberos TKEY query successful"
+                            $TKEY_success = $true         
+                        }
+                        else
+                        {
+                            Write-Output ("[-] Kerberos TKEY query error 0x" + $tkey_payload.Substring(8,4))
+                            $TKEY_success = $false
+                        }
+
+                        if($TKEY_success)
+                        {
+
+                            if($kerberos_tcpclient)
+                            {
+                                $cipher_index = $tkey_payload.IndexOf("A003020112A2")
+                                $cipher_length = $DNS_client_receive[($cipher_index / 2 + 8)]
+                                $cipher = $DNS_client_receive[($cipher_index / 2 + 9)..($cipher_index / 2 + 8 + $cipher_length)]
+                                $ke_key = Get-KerberosAES256UsageKey encrypt 12 $kerberos_session_key
+                                $tkey_cleartext = Unprotect-KerberosASREP $ke_key $cipher[0..($cipher.Count - 13)]
+                                $acceptor_subkey = $tkey_cleartext[59..90]
+                            }
+                            else
+                            {
+                                $sequence_index = $tkey_payload.IndexOf("FFFFFFFFFF00000000")
+                                $sequence_number = $DNS_client_receive[($sequence_index / 2 + 9)..($sequence_index / 2 + 12)]
+                                $acceptor_subkey = $asrep_key
+                            }
+
+                            $kc_key = Get-KerberosAES256UsageKey checksum 25 $acceptor_subkey
+                            $time_signed = [Int](([DateTime]::UtcNow)-(Get-Date "1/1/1970")).TotalSeconds
+                            $time_signed = [System.BitConverter]::GetBytes($time_signed)
+                            $time_signed = 0x00,0x00 + $time_signed[3..0]
+                            [Byte[]]$transaction_id = New-RandomByteArray 2
+                            $packet_DNSUpdate = New-PacketDNSUpdate $transaction_ID $Zone $DNSName $DNSType $DNSTTL $DNSPreference $DNSPriority $DNSWeight $DNSPort $DNSData $time_signed $tkey_name
+                            [Byte[]]$DNSUpdateTSIG = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdate
+                            $packet_DNSUpdateMAC = New-PacketDNSUpdateMAC $mac_flags $sequence_number
+                            [Byte[]]$DNSUpdateMAC = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdateMAC
+                            $DNSUpdateTSIG += $DNSUpdateMAC
+                            $checksum = Get-KerberosHMACSHA1 $kc_key $DNSUpdateTSIG
+                            $packet_DNSUpdateMAC = New-PacketDNSUpdateMAC $mac_flags $sequence_number $checksum
+                            [Byte[]]$DNSUpdateMAC = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdateMAC
+                            $packet_DNSUpdate = New-PacketDNSUpdate $transaction_ID $Zone $DNSName $DNSType $DNSTTL $DNSPreference $DNSPriority $DNSWeight $DNSPort $DNSData $time_signed $tkey_name $DNSUpdateMAC
+                            [Byte[]]$DNSUpdateTSIG = ConvertFrom-PacketOrderedDictionary $packet_DNSUpdate
+                            $DNS_client_send = $DNSUpdateTSIG
+                            $DNS_client_stream.Write($DNS_client_send,0,$DNS_client_send.Length) > $null
+                            $DNS_client_stream.Flush()   
+                            $DNS_client_stream.Read($DNS_client_receive,0,$DNS_client_receive.Length) > $null
+                            $DNS_update_response_status = Get-DNSUpdateResponseStatus $DNS_client_receive
+                            Write-Output $DNS_update_response_status
+                            $DNS_client.Close()
+                            $DNS_client_stream.Close()
+                        }
+
+                    }
+
                 }
 
             }
