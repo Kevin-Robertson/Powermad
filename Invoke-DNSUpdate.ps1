@@ -94,10 +94,11 @@ function Invoke-DNSUpdate
     Check for an existing matching record before attempting to add or delete.
 
     .PARAMETER TCPClientAuth
-    Switch to force usage of the TCPClient based Kerberos authentication.
+    Switch to force usage of the TCPClient based Kerberos authentication. Note, usernames are case sensitive with
+    this switch.
 
     .EXAMPLE
-    Invoke-DNSUpdate -DNSType A -DNSName www.test.local -DNSData 192.168.100.125 -DNSTTL 84600
+    Invoke-DNSUpdate -DNSName www -DNSData 192.168.100.125
     Add A Record
 
     .EXAMPLE

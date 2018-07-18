@@ -1067,7 +1067,7 @@ function Set-MachineAccountAttribute
     {
         $directory_entry.InvokeSet($Attribute,$Value)
         $directory_entry.SetInfo()
-        Write-Output "[+] $directory_entry updated"
+        Write-Output "[+] $machine_account attribute $Attribute updated"
     }
     catch
     {
@@ -1115,7 +1115,7 @@ function Disable-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER SOASerialNumber
     The current SOA serial number for the target zone. Note, using this parameter will bypass connecting to a
@@ -1139,7 +1139,7 @@ function Disable-ADIDNSNode
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][Int32]$SOASerialNumber,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
@@ -1291,7 +1291,7 @@ function Enable-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Port
     SRV record port.
@@ -1341,7 +1341,7 @@ function Enable-ADIDNSNode
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][ValidateSet("A","AAAA","CNAME","DNAME","MX","NS","PTR","SRV","TXT")][String]$Type = "A",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][Byte[]]$DNSRecord,
@@ -1497,7 +1497,7 @@ function Get-ADIDNSNodeAttribute
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -1505,7 +1505,7 @@ function Get-ADIDNSNodeAttribute
     .EXAMPLE
     Get the dnsRecord attribute value of a node named test.
     Get-ADIDNSNodeAttribute -Node test -Attribute dnsRecord
-    
+
     .LINK
     https://github.com/Kevin-Robertson/Powermad
     #>
@@ -1518,7 +1518,7 @@ function Get-ADIDNSNodeAttribute
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Attribute,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
         [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
@@ -1638,7 +1638,7 @@ function Get-ADIDNSNodeOwner
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -1658,7 +1658,7 @@ function Get-ADIDNSNodeOwner
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
         [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
@@ -1779,7 +1779,7 @@ function Get-ADIDNSNodeTombstoned
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -1799,7 +1799,7 @@ function Get-ADIDNSNodeTombstoned
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
         [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
@@ -1942,7 +1942,7 @@ function Get-ADIDNSPermission
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -1966,7 +1966,7 @@ function Get-ADIDNSPermission
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$false)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
         [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
@@ -2172,7 +2172,7 @@ function Grant-ADIDNSPermission
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Principal
     The user or group that will be used for the ACE.
@@ -2202,7 +2202,7 @@ function Grant-ADIDNSPermission
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$false)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Principal,
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
@@ -2364,7 +2364,7 @@ function New-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Port
     SRV record port.
@@ -2419,7 +2419,7 @@ function New-ADIDNSNode
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][ValidateSet("A","AAAA","CNAME","DNAME","MX","NS","PTR","SRV","TXT")][String]$Type = "A",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][Byte[]]$DNSRecord,
@@ -3075,7 +3075,7 @@ function Rename-ADIDNSNode
     The new ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -3096,7 +3096,7 @@ function Rename-ADIDNSNode
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
         [parameter(Mandatory=$false)][String]$NodeNew = "*",
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
         [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
@@ -3214,7 +3214,7 @@ function Remove-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -3234,7 +3234,7 @@ function Remove-ADIDNSNode
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
         [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
@@ -3358,7 +3358,7 @@ function Revoke-ADIDNSPermission
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Principal
     The ACE user or group.
@@ -3388,7 +3388,7 @@ function Revoke-ADIDNSPermission
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$false)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Principal,
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
@@ -3540,7 +3540,7 @@ function Set-ADIDNSNodeAttribute
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Value
     The attribute value.
@@ -3564,7 +3564,7 @@ function Set-ADIDNSNodeAttribute
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Attribute,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$true)]$Value,
         [parameter(Mandatory=$false)][Switch]$Append,
@@ -3698,7 +3698,7 @@ function Set-ADIDNSNodeOwner
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
 
     .PARAMETER Principal
     The user or group that will be granted ownsership.
@@ -3721,7 +3721,7 @@ function Set-ADIDNSNodeOwner
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
         [parameter(Mandatory=$true)][String]$Node,
-        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones")][String]$Partition = "DomainDNSZones",
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$true)][String]$Principal,
         [parameter(Mandatory=$false)][String]$Zone,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
