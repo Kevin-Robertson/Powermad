@@ -64,7 +64,7 @@ function Disable-MachineAccount
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain))
+    if(!$DomainController -or !$Domain)
     {
 
         try
@@ -114,7 +114,7 @@ function Disable-MachineAccount
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName"
+        $distinguished_name = $DistinguishedName
     }
 
     if($Credential)
@@ -207,7 +207,7 @@ function Enable-MachineAccount
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain))
+    if(!$DomainController -or !$Domain)
     {
 
         try
@@ -257,7 +257,7 @@ function Enable-MachineAccount
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName"
+        $distinguished_name = $DistinguishedName
     }
 
     if($Credential)
@@ -354,7 +354,7 @@ function Get-MachineAccountAttribute
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain))
+    if(!$DomainController -or !$Domain)
     {
 
         try
@@ -404,7 +404,7 @@ function Get-MachineAccountAttribute
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName"
+        $distinguished_name = $DistinguishedName
     }
 
     if($Credential)
@@ -486,7 +486,7 @@ function Get-MachineAccountCreator
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain))
+    if(!$DomainController -or !$Domain)
     {
 
         try
@@ -527,7 +527,7 @@ function Get-MachineAccountCreator
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName"
+        $distinguished_name = $DistinguishedName
     }
 
     try
@@ -680,7 +680,7 @@ function New-MachineAccount
     $password_BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)
     $password_cleartext = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($password_BSTR)
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain))
+    if(!$DomainController -or !$Domain)
     {
 
         try
@@ -736,7 +736,7 @@ function New-MachineAccount
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName"
+        $distinguished_name = $DistinguishedName
     }
 
     $password_cleartext = [System.Text.Encoding]::Unicode.GetBytes('"' + $password_cleartext + '"')
@@ -844,7 +844,7 @@ function Remove-MachineAccount
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -894,7 +894,7 @@ function Remove-MachineAccount
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName"
+        $distinguished_name = $DistinguishedName
     }
 
     if($Credential)
@@ -1001,7 +1001,7 @@ function Set-MachineAccountAttribute
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain))
+    if(!$DomainController -or !$Domain)
     {
 
         try
@@ -1051,7 +1051,7 @@ function Set-MachineAccountAttribute
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName"
+        $distinguished_name = $DistinguishedName
     }
 
     if($Credential)
@@ -1102,7 +1102,7 @@ function Disable-ADIDNSNode
     PSCredential object that will be used to tombstone the DNS node.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -1126,7 +1126,7 @@ function Disable-ADIDNSNode
 
     .EXAMPLE
     Tombstone a wildcard record.
-    Set-ADIDNSNodeTombstone -Node *
+    Disable-ADIDNSNode -Node *
     
     .LINK
     https://github.com/Kevin-Robertson/Powermad
@@ -1152,7 +1152,7 @@ function Disable-ADIDNSNode
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -1192,12 +1192,21 @@ function Disable-ADIDNSNode
     catch
     {
         Write-Output "[-] $($_.Exception.Message)"
-        throw    
+        throw
     }
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+        
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -1209,7 +1218,7 @@ function Disable-ADIDNSNode
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if($Credential)
@@ -1275,7 +1284,7 @@ function Enable-ADIDNSNode
     for data.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS zone.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER DNSRecord
     DNSRecord byte array. See MS-DNSP for details on the dnsRecord structure.
@@ -1363,7 +1372,7 @@ function Enable-ADIDNSNode
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -1398,7 +1407,16 @@ function Enable-ADIDNSNode
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -1410,7 +1428,7 @@ function Enable-ADIDNSNode
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if(!$DNSRecord)
@@ -1484,7 +1502,7 @@ function Get-ADIDNSNodeAttribute
     PSCredential object that will be used to read the attribute.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -1530,7 +1548,7 @@ function Get-ADIDNSNodeAttribute
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -1565,7 +1583,16 @@ function Get-ADIDNSNodeAttribute
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -1577,7 +1604,7 @@ function Get-ADIDNSNodeAttribute
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if($Credential)
@@ -1625,7 +1652,7 @@ function Get-ADIDNSNodeOwner
     PSCredential object that will be used to read the attribute.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -1670,7 +1697,7 @@ function Get-ADIDNSNodeOwner
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -1705,7 +1732,16 @@ function Get-ADIDNSNodeOwner
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -1717,7 +1753,7 @@ function Get-ADIDNSNodeOwner
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if($Credential)
@@ -1766,7 +1802,7 @@ function Get-ADIDNSNodeTombstoned
     PSCredential object that will be used to read the attribute.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -1811,7 +1847,7 @@ function Get-ADIDNSNodeTombstoned
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -1846,7 +1882,16 @@ function Get-ADIDNSNodeTombstoned
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -1858,7 +1903,7 @@ function Get-ADIDNSNodeTombstoned
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if($Credential)
@@ -1978,7 +2023,7 @@ function Get-ADIDNSPermission
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -2016,11 +2061,29 @@ function Get-ADIDNSPermission
 
         if($Node)
         {
-            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+
+            if($Partition -eq 'System')
+            {
+                $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+            }
+            else
+            {
+                $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+            }
+
         }
         else
         {
-            $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,DC=DomainDNSZones"
+
+            if($Partition -eq 'System')
+            {
+                $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+            }
+            else
+            {
+                $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+            }
+
         }
 
         $DC_array = $Domain.Split(".")
@@ -2034,7 +2097,7 @@ function Get-ADIDNSPermission
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = $DistinguishedName
     }
 
     if($Credential)
@@ -2135,6 +2198,186 @@ function Get-ADIDNSPermission
     return $output
 }
 
+function Get-ADIDNSZone
+{
+    <#
+    .SYNOPSIS
+    This function can return ADIDNS zones.
+
+    Author: Kevin Robertson (@kevin_robertson)  
+    License: BSD 3-Clause 
+    
+    .DESCRIPTION
+    This function can return ADIDNS zones. The output format is a distinguished name. The distinguished name will
+    contain a partition value of either DomainDNSZones,ForestDNSZone, or System. The correct value can be inputed
+    to the Partition parameter for other Powermad ADIDNS functions.
+
+    .PARAMETER Credential
+    PSCredential object that will be used to read the attribute.
+
+    .PARAMETER DistinguishedName
+    Distinguished name for the ADIDNS zone. Do not include the node name.
+
+    .PARAMETER Domain
+    The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
+    parameter.
+
+    .PARAMETER DomainController
+    Domain controller to target. This parameter is mandatory on a non-domain attached system.
+
+    .PARAMETER Partition
+    (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored. By default, this
+    function will loop through all three partitions.
+
+    .PARAMETER Zone
+    The ADIDNS zone to serach for.
+
+    .EXAMPLE
+    Get all ADIDNS zones.
+    Get-ADIDNSZone
+
+    .LINK
+    https://github.com/Kevin-Robertson/Powermad
+    #>
+
+    [CmdletBinding()]
+    param
+    (
+        [parameter(Mandatory=$false)][String]$DistinguishedName,
+        [parameter(Mandatory=$false)][String]$Domain,
+        [parameter(Mandatory=$false)][String]$DomainController,
+        [parameter(Mandatory=$false)][String]$Zone,
+        [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "",
+        [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
+        [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
+    )
+
+    if($invalid_parameter)
+    {
+        Write-Output "[-] $($invalid_parameter) is not a valid parameter"
+        throw
+    }
+
+    if(!$DomainController -or !$Domain)
+    {
+
+        try
+        {
+            $current_domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
+        }
+        catch
+        {
+            Write-Output "[-] $($_.Exception.Message)"
+            throw
+        }
+
+    }
+
+    if(!$DomainController)
+    {
+        $DomainController = $current_domain.PdcRoleOwner.Name
+        Write-Verbose "[+] Domain Controller = $DomainController"
+    }
+
+    if(!$Domain)
+    {
+        $Domain = $current_domain.Name
+        Write-Verbose "[+] Domain = $Domain"
+    }
+
+    if(!$Partition)
+    {
+
+        if(!$DistinguishedName)
+        {
+            $partition_list = @("DomainDNSZones","ForestDNSZones","System")
+        }
+        else
+        {
+            $partition_array = $DistinguishedName.Split(",")
+            $partition_list = @($partition_array[0].Substring(3))
+        }
+
+    }
+    else
+    {
+        $partition_list = @($Partition)
+    }
+
+    ForEach($partition_entry in $partition_list)
+    {
+
+        if(!$DistinguishedName)
+        {
+
+            if($partition_entry -eq 'System')
+            {
+                $distinguished_name = "CN=$partition_entry"
+            }
+            else
+            {
+                $distinguished_name = "DC=$partition_entry"
+            }
+
+            $DC_array = $Domain.Split(".")
+
+            ForEach($DC in $DC_array)
+            {
+                $distinguished_name += ",DC=$DC"
+            }
+
+            Write-Verbose "[+] Distinguished Name = $distinguished_name"
+        }
+        else
+        {
+            $distinguished_name = $DistinguishedName
+        }
+
+        if($Credential)
+        {
+            $directory_entry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$DomainController/$distinguished_name",$Credential.UserName,$Credential.GetNetworkCredential().Password)
+        }
+        else
+        {
+            $directory_entry = New-Object System.DirectoryServices.DirectoryEntry "LDAP://$DomainController/$distinguished_name"
+        }
+
+        try
+        {
+            $directory_searcher = New-Object System.DirectoryServices.DirectorySearcher($directory_entry)
+            
+            if($Zone)
+            {
+                $directory_searcher.filter = "(&(objectClass=dnszone)(name=$Zone))"
+            }
+            else
+            {
+                $directory_searcher.filter = "(objectClass=dnszone)"
+            }
+
+            $search_results = $directory_searcher.FindAll()
+
+            for($i=0; $i -lt $search_results.Count; $i++)
+            {
+                $output += $search_results.Item($i).Properties.distinguishedname
+            }
+
+        }
+        catch
+        {
+            Write-Output "[-] $($_.Exception.Message)"
+        }
+
+        if($directory_entry.Path)
+        {
+            $directory_entry.Close()
+        }
+
+    }
+
+    return $output
+}
+
 function Grant-ADIDNSPermission
 {
     <#
@@ -2215,7 +2458,7 @@ function Grant-ADIDNSPermission
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -2253,11 +2496,29 @@ function Grant-ADIDNSPermission
 
         if($Node)
         {
-            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+
+            if($Partition -eq 'System')
+            {
+                $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+            }
+            else
+            {
+                $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+            }
+
         }
         else
         {
-            $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,DC=DomainDNSZones"
+
+            if($Partition -eq 'System')
+            {
+                $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+            }
+            else
+            {
+                $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+            }
+
         }
 
         $DC_array = $Domain.Split(".")
@@ -2271,7 +2532,7 @@ function Grant-ADIDNSPermission
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = $DistinguishedName
     }
 
     if($Credential)
@@ -2348,7 +2609,7 @@ function New-ADIDNSNode
     for data.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS zone.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER DNSRecord
     DNSRecord byte array. See MS-DNSP for details on the dnsRecord structure.
@@ -2414,7 +2675,7 @@ function New-ADIDNSNode
     [CmdletBinding()]
     param
     (
-        [parameter(Mandatory=$false)][String]$Data,    
+        [parameter(Mandatory=$false)][String]$Data,
         [parameter(Mandatory=$false)][String]$DistinguishedName,
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
@@ -2443,7 +2704,7 @@ function New-ADIDNSNode
 
     $null = [System.Reflection.Assembly]::LoadWithPartialName("System.DirectoryServices.Protocols")
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -2478,7 +2739,16 @@ function New-ADIDNSNode
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -2490,7 +2760,7 @@ function New-ADIDNSNode
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if(!$DNSRecord)
@@ -3059,7 +3329,7 @@ function Rename-ADIDNSNode
     PSCredential object that will be used to rename the ADIDNS node.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -3108,7 +3378,7 @@ function Rename-ADIDNSNode
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -3143,7 +3413,16 @@ function Rename-ADIDNSNode
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -3155,7 +3434,7 @@ function Rename-ADIDNSNode
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = $DistinguishedName 
     }
 
     if($Credential)
@@ -3201,7 +3480,7 @@ function Remove-ADIDNSNode
     PSCredential object that will be used to delete the ADIDNS node.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -3246,7 +3525,7 @@ function Remove-ADIDNSNode
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -3281,7 +3560,16 @@ function Remove-ADIDNSNode
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -3293,7 +3581,7 @@ function Remove-ADIDNSNode
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = $DistinguishedName 
     }
 
     if($Credential)
@@ -3345,7 +3633,7 @@ function Revoke-ADIDNSPermission
     PSCredential object that will be used to modify the DACL.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node or zone.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -3401,7 +3689,7 @@ function Revoke-ADIDNSPermission
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -3439,11 +3727,29 @@ function Revoke-ADIDNSPermission
 
         if($Node)
         {
-            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+
+            if($Partition -eq 'System')
+            {
+                $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+            }
+            else
+            {
+                $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+            }
+
         }
         else
         {
-            $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,DC=DomainDNSZones"
+
+            if($Partition -eq 'System')
+            {
+                $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+            }
+            else
+            {
+                $distinguished_name = "DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+            }
+
         }
 
         $DC_array = $Domain.Split(".")
@@ -3457,7 +3763,7 @@ function Revoke-ADIDNSPermission
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = $DistinguishedName 
     }
 
     if($Credential)
@@ -3527,7 +3833,7 @@ function Set-ADIDNSNodeAttribute
     PSCredential object that will be used to modify the attribute.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -3578,7 +3884,7 @@ function Set-ADIDNSNodeAttribute
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -3613,7 +3919,16 @@ function Set-ADIDNSNodeAttribute
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -3625,7 +3940,7 @@ function Set-ADIDNSNodeAttribute
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if($Credential)
@@ -3685,7 +4000,7 @@ function Set-ADIDNSNodeOwner
     PSCredential object that will be used to read the attribute.
 
     .PARAMETER DistinguishedName
-    Distinguished name for the ADIDNS node.
+    Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER Domain
     The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
@@ -3734,7 +4049,7 @@ function Set-ADIDNSNodeOwner
         throw
     }
 
-    if(!$DistinguishedName -and (!$DomainController -or !$Domain -or !$Zone))
+    if(!$DomainController -or !$Domain -or !$Zone)
     {
 
         try
@@ -3769,7 +4084,16 @@ function Set-ADIDNSNodeOwner
 
     if(!$DistinguishedName)
     {
-        $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+       
+        if($Partition -eq 'System')
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,CN=$Partition"
+        }
+        else
+        {
+            $distinguished_name = "DC=$Node,DC=$Zone,CN=MicrosoftDNS,DC=$Partition"
+        }
+
         $DC_array = $Domain.Split(".")
 
         ForEach($DC in $DC_array)
@@ -3781,7 +4105,7 @@ function Set-ADIDNSNodeOwner
     }
     else 
     {
-        $distinguished_name = "$DistinguishedName" 
+        $distinguished_name = "DC=$Node," + $DistinguishedName
     }
 
     if($Credential)

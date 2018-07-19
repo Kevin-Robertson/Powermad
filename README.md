@@ -168,7 +168,7 @@ This function can return values populated in an DNS node attribute.
 
 ### Get-ADIDNSNodeOwner
 
-This function can returns the owner of an ADIDNS Node.  
+This function can return the owner of an ADIDNS Node.  
 
 ##### Example:
 
@@ -185,6 +185,14 @@ This function gets a DACL of an ADIDNS node or zone.
 
 * Get the DACL for an DNS node named test from a domain attached system.  
 `Get-ADIDNSPermission -Node test`
+
+### Get-ADIDNSZone
+
+This function can return ADIDNS zones.  
+
+##### Examples:
+* Get all ADIDNS zones.  
+`Get-ADIDNSZone`
 
 ### Grant-ADIDNSPermission
 
