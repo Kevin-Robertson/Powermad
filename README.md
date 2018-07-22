@@ -220,7 +220,7 @@ This function creates a valid byte array for the dnsRecord attribute.
 ##### Example:
 
 * Create a dnsRecord array for an A record pointing to 192.168.0.1.  
-`New-DNSRecordArray -DNSType A -DNSData 192.168.0.1`  
+`New-DNSRecordArray -Data 192.168.0.1`  
 
 ### New-SOASerialNumberArray
 

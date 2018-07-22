@@ -133,7 +133,7 @@ function Disable-MachineAccount
         {
             $directory_entry.InvokeSet("AccountDisabled","True")
             $directory_entry.SetInfo()
-            Write-Output "[+] Machine account $MachineAccount has been disabled"
+            Write-Output "[+] Machine account $MachineAccount disabled"
         }
         catch
         {
@@ -143,7 +143,7 @@ function Disable-MachineAccount
     }
     else
     {
-        Write-Output "[-] Machine account $MachineAccount is already disabled"   
+        Write-Output "[-] Machine account $MachineAccount is already disabled"
     }
 
     if($directory_entry.Path)
@@ -387,7 +387,7 @@ function Get-MachineAccountAttribute
     }
     else
     {
-        $machine_account = $MachineAccount  
+        $machine_account = $MachineAccount
     }
 
     if(!$DistinguishedName)
@@ -768,7 +768,7 @@ function New-MachineAccount
     try
     {
         $connection.SendRequest($request) > $null
-        Write-Output "[+] machine account $MachineAccount added"
+        Write-Output "[+] Machine account $MachineAccount added"
     }
     catch
     {
@@ -948,9 +948,12 @@ function Set-MachineAccountAttribute
     msDS-AdditionalDnsHostName
     msDS-AllowedToActOnBehalfOfOtherIdentity
     SamAccountName
-    
-    Author: Kevin Robertson (@kevin_robertson)  
-    License: BSD 3-Clause 
+
+    Author: Kevin Robertson (@kevin_robertson)
+    License: BSD 3-Clause
+
+    .PARAMETER Append
+    Switch: Appends a value rather than overwriting.
 
     .PARAMETER Credential
     PSCredential object that will be used to modify the attribute.
@@ -991,6 +994,7 @@ function Set-MachineAccountAttribute
         [parameter(Mandatory=$true)][String]$MachineAccount,
         [parameter(Mandatory=$true)][String]$Attribute,
         [parameter(Mandatory=$true)]$Value,
+        [parameter(Mandatory=$false)][Switch]$Append,
         [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
         [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
     )
@@ -1065,9 +1069,19 @@ function Set-MachineAccountAttribute
 
     try
     {
-        $directory_entry.InvokeSet($Attribute,$Value)
-        $directory_entry.SetInfo()
-        Write-Output "[+] $machine_account attribute $Attribute updated"
+
+        if($Append)
+        {
+            $directory_entry.$Attribute.Add($Value) > $null
+            $directory_entry.SetInfo()
+            Write-Output "[+] Machine account $machine_account attribute $Attribute appended"
+        }
+        else
+        {
+            $directory_entry.InvokeSet($Attribute,$Value)
+            $directory_entry.SetInfo()
+            Write-Output "[+] Machine account $machine_account attribute $Attribute updated"
+        }
     }
     catch
     {
@@ -1469,7 +1483,7 @@ function Enable-ADIDNSNode
     {
         $directory_entry.InvokeSet('dnsRecord',$DNSRecord)
         $directory_entry.SetInfo()
-        Write-Output "[+] $Node enabled"
+        Write-Output "[+] ADIDNS node $Node enabled"
     }
     catch
     {
@@ -2306,6 +2320,7 @@ function Get-ADIDNSZone
 
     ForEach($partition_entry in $partition_list)
     {
+        Write-Verbose "[+] Partition = $partition_entry"
 
         if(!$DistinguishedName)
         {
@@ -2571,7 +2586,7 @@ function Grant-ADIDNSPermission
         }
         else
         {
-            Write-Output "[+] ACE added for $Principal to $Zone DACL"    
+            Write-Output "[+] ACE added for $Principal to $Zone DACL"
         }
 
     }
@@ -3049,7 +3064,7 @@ function New-SOASerialNumberArray
         [Byte[]]$SOA_serial_number_array = [System.BitConverter]::GetBytes($SOASerialNumber + $Increment)[0..3]
     }
 
-    return [Byte[]]$SOA_serial_number_array
+    return ,$SOA_serial_number_array
 }
 
 function New-DNSRecordArray
@@ -3058,9 +3073,9 @@ function New-DNSRecordArray
     .SYNOPSIS
     This function creates a valid byte array for the dnsRecord attribute.
 
-    Author: Kevin Robertson (@kevin_robertson)  
-    License: BSD 3-Clause 
-    
+    Author: Kevin Robertson (@kevin_robertson)
+    License: BSD 3-Clause
+
     .DESCRIPTION
     DNS record types and targets are defined within the dnsRecord attribute. This function will create a valid
     array for record type and data. The arrays can be passed to both New-ADIDNSNode and Set-ADIDNSNodeAttribute
@@ -3110,6 +3125,7 @@ function New-DNSRecordArray
     #>
 
     [CmdletBinding()]
+    [OutputType([Byte[]])]
     param
     (
         [parameter(Mandatory=$false)][String]$Data,
@@ -3160,7 +3176,7 @@ function New-DNSRecordArray
     catch
     {
         Write-Output "[-] $($_.Exception.Message)"
-        throw    
+        throw
     }
 
     function New-DNSNameArray
@@ -3309,7 +3325,7 @@ function New-DNSRecordArray
     
     $DNS_record += $DNS_data
 
-    return [Byte[]]$DNS_record
+    return ,$DNS_record
 }
 
 function Rename-ADIDNSNode
@@ -3959,13 +3975,13 @@ function Set-ADIDNSNodeAttribute
         {
             $directory_entry.$Attribute.Add($Value) > $null
             $directory_entry.SetInfo()
-            Write-Output "[+] $attribute appended"
+            Write-Output "[+] ADIDNS node $Node $attribute attribute appended"
         }
         else
         {
             $directory_entry.InvokeSet($Attribute,$Value)
             $directory_entry.SetInfo()
-            Write-Output "[+] $attribute updated for $Node"
+            Write-Output "[+] ADIDNS node $Node $attribute attribute updated"
         }
 
     }
