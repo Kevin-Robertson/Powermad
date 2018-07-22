@@ -3158,14 +3158,14 @@ function New-DNSRecordArray
         }
         catch
         {
-            Write-Output "[-] Error finding local IP, specify manually with -DNSData"
+            Write-Output "[-] Error finding local IP, specify manually with -Data"
             throw
         }
 
     }
     elseif(!$Data)
     {
-        Write-Output "[-] -DNSData required with record type $Type"
+        Write-Output "[-] -Data required with record type $Type"
         throw
     }
 
