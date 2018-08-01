@@ -1453,11 +1453,11 @@ function Enable-ADIDNSNode
 
             if($Static)
             {
-                $DNSRecord = New-DNSRecordArray -Data $Data -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight -Static
+                $DNSRecord = New-DNSRecordArray -Data $Data -DomainController $DomainController -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight -Zone $Zone -Static
             }
             else
             {
-                $DNSRecord = New-DNSRecordArray -Data $Data -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight 
+                $DNSRecord = New-DNSRecordArray -Data $Data -DomainController $DomainController -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight -Zone $Zone 
             }
 
             Write-Verbose "[+] DNSRecord = $([System.Bitconverter]::ToString($DNSRecord))"
@@ -2627,14 +2627,17 @@ function New-ADIDNSNode
     Distinguished name for the ADIDNS zone. Do not include the node name.
 
     .PARAMETER DNSRecord
-    DNSRecord byte array. See MS-DNSP for details on the dnsRecord structure.
+    dnsRecord attribute byte array. If not specified, New-DNSRecordArray will generate the array. See MS-DNSP for
+    details on the dnsRecord structure.
 
     .PARAMETER Domain
-    The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
-    parameter.
+    The targeted domain in DNS format. This parameter is mandatory on a non-domain attached system.
 
     .PARAMETER DomainController
     Domain controller to target. This parameter is mandatory on a non-domain attached system.
+
+    .PARAMETER Forest
+    The targeted forest in DNS format. This parameter is mandatory on a non-domain attached system.
 
     .PARAMETER Node
     The ADIDNS node name.
@@ -2666,13 +2669,13 @@ function New-ADIDNSNode
     Default = 600: DNS record TTL.
 
     .PARAMETER Type
-    Default = A: DNS record type. This function supports A, AAAA, CNAME, DNAME, MX, PTR, SRV, and TXT.
+    Default = A: DNS record type. This function supports A, AAAA, CNAME, DNAME, NS, MX, PTR, SRV, and TXT.
 
     .PARAMETER Weight
     SRV record weight.
 
     .PARAMETER Zone
-    The ADIDNS zone.
+    The ADIDNS zone. This parameter is mandatory on a non-domain attached system.
 
     .EXAMPLE
     Add a wildcard record to an ADIDNS zone and tombstones the node.
@@ -2694,6 +2697,7 @@ function New-ADIDNSNode
         [parameter(Mandatory=$false)][String]$DistinguishedName,
         [parameter(Mandatory=$false)][String]$Domain,
         [parameter(Mandatory=$false)][String]$DomainController,
+        [parameter(Mandatory=$false)][String]$Forest,
         [parameter(Mandatory=$true)][String]$Node,
         [parameter(Mandatory=$false)][ValidateSet("DomainDNSZones","ForestDNSZones","System")][String]$Partition = "DomainDNSZones",
         [parameter(Mandatory=$false)][ValidateSet("A","AAAA","CNAME","DNAME","MX","NS","PTR","SRV","TXT")][String]$Type = "A",
@@ -2719,7 +2723,7 @@ function New-ADIDNSNode
 
     $null = [System.Reflection.Assembly]::LoadWithPartialName("System.DirectoryServices.Protocols")
 
-    if(!$DomainController -or !$Domain -or !$Zone)
+    if(!$DomainController -or !$Domain -or !$Zone -or !$Forest)
     {
 
         try
@@ -2744,6 +2748,12 @@ function New-ADIDNSNode
     {
         $Domain = $current_domain.Name
         Write-Verbose "[+] Domain = $Domain"
+    }
+
+    if(!$Forest)
+    {
+        $Forest = $current_domain.Forest
+        Write-Verbose "[+] Forest = $Forest"
     }
 
     if(!$Zone)
@@ -2786,11 +2796,11 @@ function New-ADIDNSNode
 
             if($Static)
             {
-                $DNSRecord = New-DNSRecordArray -Data $Data -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight -Static
+                $DNSRecord = New-DNSRecordArray -Data $Data -DomainController $DomainController -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight -Zone $Zone -Static
             }
             else
             {
-                $DNSRecord = New-DNSRecordArray -Data $Data -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight 
+                $DNSRecord = New-DNSRecordArray -Data $Data -DomainController $DomainController -Port $Port -Preference $Preference -Priority $Priority -SOASerialNumber $SOASerialNumber -TTL $TTL -Type $Type -Weight $Weight -Zone $Zone 
             }
             
             Write-Verbose "[+] DNSRecord = $([System.Bitconverter]::ToString($DNSRecord))"
@@ -2815,9 +2825,9 @@ function New-ADIDNSNode
     }
 
     $object_category = "CN=Dns-Node,CN=Schema,CN=Configuration"
-    $DC_array = $Domain.Split(".")
+    $forest_array = $Forest.Split(".")
 
-    ForEach($DC in $DC_array)
+    ForEach($DC in $forest_array)
     {
         $object_category += ",DC=$DC"
     }
@@ -2902,7 +2912,7 @@ function New-SOASerialNumberArray
     if(!$SOASerialNumber)
     {
 
-        if(!$DomainController -or !$Domain -or !$Zone)
+        if(!$DomainController -or !$Zone)
         {
 
             try
@@ -3084,7 +3094,7 @@ function New-DNSRecordArray
     For most record types this will be the destination hostname or IP address. For TXT records this can be used
     for data.
 
-     .PARAMETER DomainController
+    .PARAMETER DomainController
     Domain controller that will be passed to New-SOASerialNumberArray. This parameter is mandatory on a non-domain
     attached system.
 
