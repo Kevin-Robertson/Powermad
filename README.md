@@ -1,4 +1,6 @@
-# **Powermad - PowerShell MachineAccountQuota and DNS exploit tools**
+![Powermad_logo](https://user-images.githubusercontent.com/5897462/62258617-2154ee00-b3d9-11e9-9414-67fadeb35f2f.png)
+
+# **PowerShell MachineAccountQuota and DNS exploit tools**
 
 ## Wiki
 * https://github.com/Kevin-Robertson/Powermad/wiki
