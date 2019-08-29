@@ -118,6 +118,12 @@ Here is a list of some of the usual write access enabled attributes:
 * Use the modified account with runas /netonly  
 `runas /netonly /user:domain\test powershell` 
 
+### Invoke-AgentSmith
+
+This function leverages New-MachineAccount to recursively create as as many machine accounts as possible from a single unprivileged account through MachineAccountQuota. See the following blog post for details:  
+
+* https://blog.netspi.com/machineaccountquota-transitive-quota 
+
 ## DNS Functions
 
 By default, authenticated users have the 'Create all child objects' permission on the Active Directory-Integrated DNS (ADIDNS) zone. Most records that do not currently exist in an AD zone can be added/deleted. 
