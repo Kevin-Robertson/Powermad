@@ -167,7 +167,7 @@ This function can turn a tombstoned node back into a valid record.
     
 ### Get-ADIDNSNodeAttribute
 
-This function can return values populated in an DNS node attribute.  
+This function can return values populated in a DNS node attribute.  
 
 ##### Example:
 
@@ -191,7 +191,7 @@ This function gets a DACL of an ADIDNS node or zone.
 * Get the DACL for the default Active Directory-Integrated Zone from a domain attached system.  
 `Get-ADIDNSPermission`
 
-* Get the DACL for an DNS node named test from a domain attached system.  
+* Get the DACL for a DNS node named test from a domain attached system.  
 `Get-ADIDNSPermission -Node test`
 
 ### Get-ADIDNSZone
@@ -204,7 +204,7 @@ This function can return ADIDNS zones.
 
 ### Grant-ADIDNSPermission
 
-This function adds an ACE to an DNS node or zone DACL.  
+This function adds an ACE to a DNS node or zone DACL.  
 
 ##### Example:
 
@@ -214,7 +214,7 @@ This function adds an ACE to an DNS node or zone DACL.
 
 ### New-ADIDNSNode
 
-This function adds an DNS node to an Active Directory-Integrated DNS (ADIDNS) Zone through an encrypted LDAP add request.  
+This function adds a DNS node to an Active Directory-Integrated DNS (ADIDNS) Zone through an encrypted LDAP add request.  
 
 ##### Example:
 
@@ -241,16 +241,16 @@ This function gets the current SOA serial number for a DNS zone and increments i
 
 ### Rename-ADIDNSNode
 
-This function can rename an DNS node.  
+This function can rename a DNS node.  
 
 ##### Example:
 
-* Renames an DNS node named test to test2.  
+* Renames a DNS node named test to test2.  
 `Rename-ADIDNSNode -Node test -NodeNew test2`  
 
 ### Remove-ADIDNSNode
 
-This function can remove an DNS node.  
+This function can remove a DNS node.  
 
 ##### Example:
 
@@ -259,7 +259,7 @@ This function can remove an DNS node.
 
 ### Revoke-ADIDNSPermission
 
-This function removes an ACE to an DNS node or zone DACL.  
+This function removes an ACE to a DNS node or zone DACL.  
 
 ##### Example:
 
@@ -268,7 +268,7 @@ This function removes an ACE to an DNS node or zone DACL.
 
 ### Set-ADIDNSNodeAttribute
 
-This function can append, populate, or overwite values in an DNS node attribute.  
+This function can append, populate, or overwite values in a DNS node attribute.  
 
 ##### Example:
 
@@ -277,7 +277,7 @@ This function can append, populate, or overwite values in an DNS node attribute.
 
 ### Set-ADIDNSNodeOwner
 
-This function can sets the owner of an DNS Node. Note that a token with SeRestorePrivilege is required.  
+This function can sets the owner of a DNS Node. Note that a token with SeRestorePrivilege is required.  
 
 ##### Example:
 
