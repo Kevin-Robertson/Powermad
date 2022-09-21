@@ -25,7 +25,7 @@ This function can return values populated in a machine account attribute.
 
 ##### Example:
 
-* Get a the value of 'description' from a machine account names 'test'.  
+* Get the value of 'description' from a machine account names 'test'.  
 `Get-MachineAccountAttribute -MachineAccount test -Attribute discription`
 
 ### Get-MachineAccountCreator  
@@ -57,7 +57,7 @@ This function can enable a machine account that was disabled through Disable-Mac
 
 ### New-MachineAccount
 
-This function can can add a new machine account directly through an LDAP add request to a domain controller and not by impacting the host system’s attachment status to Active Directory.
+This function can add a new machine account directly through an LDAP add request to a domain controller and not by impacting the host system’s attachment status to Active Directory.
 
 The LDAP add request is modeled after the add request used when joining a system to a domain. The following (mostly validated by the DC) attributes are set:
 
@@ -120,7 +120,7 @@ Here is a list of some of the usual write access enabled attributes:
 
 ### Invoke-AgentSmith
 
-This function leverages New-MachineAccount to recursively create as as many machine accounts as possible from a single unprivileged account through MachineAccountQuota. See the following blog post for details:  
+This function leverages New-MachineAccount to recursively create as many machine accounts as possible from a single unprivileged account through MachineAccountQuota. See the following blog post for details:  
 
 * https://blog.netspi.com/machineaccountquota-transitive-quota 
 
@@ -254,7 +254,7 @@ This function can remove a DNS node.
 
 ##### Example:
 
-* Removes a a wildcard node.  
+* Removes a wildcard node.  
 `Remove-ADIDNSNode -Node *`  
 
 ### Revoke-ADIDNSPermission
@@ -268,7 +268,7 @@ This function removes an ACE to a DNS node or zone DACL.
 
 ### Set-ADIDNSNodeAttribute
 
-This function can append, populate, or overwite values in a DNS node attribute.  
+This function can append, populate, or overwrite values in a DNS node attribute.  
 
 ##### Example:
 
@@ -277,7 +277,7 @@ This function can append, populate, or overwite values in a DNS node attribute.
 
 ### Set-ADIDNSNodeOwner
 
-This function can sets the owner of a DNS Node. Note that a token with SeRestorePrivilege is required.  
+This function can set the owner of a DNS Node. Note that a token with SeRestorePrivilege is required.  
 
 ##### Example:
 
