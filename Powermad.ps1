@@ -1029,7 +1029,7 @@ function Remove-MachineAccount
         throw
     }
 
-    if(!$DomainController -or !$Domain -or !$Zone)
+    if(!$DomainController -or !$Domain)
     {
 
         try
